@@ -1,0 +1,32 @@
+{
+  "name": "voice_bot_my_code",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/vinhlocvobook-lab/voice_bot_my_code#readme",
+  "bugs": {
+    "url": "https://github.com/vinhlocvobook-lab/voice_bot_my_code/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vinhlocvobook-lab/voice_bot_my_code.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type_commonjs": "commonjs",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.22.2",
+    "undici": "^8.10.0",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
