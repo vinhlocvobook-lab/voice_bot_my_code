@@ -64,20 +64,20 @@ async function runTests() {
     // }
     // return;
 
-    // TEST 4: Tra cứu thủ tục định mức nước hộ gia đình
-    {
-        console.log("\n▶ TEST 4: get_procedure_info_for_family");
-        const { send_message } = createMockSender("TEST 4");
-        const event = {
-            name: "get_procedure_info_for_family",
-            call_id: "call_test_04",
-            arguments: JSON.stringify({ loai_thu_tuc: "dinh_muc_nuoc", doi_tuong: "ho_gia_dinh" })
-        };
-        const asteriskData = {};
-        await tool_function_handler(event, asteriskData, send_message);
-    }
+    // // TEST 4: Tra cứu thủ tục định mức nước hộ gia đình
+    // {
+    //     console.log("\n▶ TEST 4: get_procedure_info_for_family");
+    //     const { send_message } = createMockSender("TEST 4");
+    //     const event = {
+    //         name: "get_procedure_info_for_family",
+    //         call_id: "call_test_04",
+    //         arguments: JSON.stringify({ loai_thu_tuc: "dinh_muc_nuoc", doi_tuong: "ho_gia_dinh" })
+    //     };
+    //     const asteriskData = {};
+    //     await tool_function_handler(event, asteriskData, send_message);
+    // }
 
-    return;
+    // return;
     // TEST 5: Kiểm tra đối chiếu giấy tờ còn thiếu
     {
         console.log("\n▶ TEST 5: check_missing_docs (Khách đã có CCCD)");
@@ -96,21 +96,21 @@ async function runTests() {
     }
 
     // TEST 6: Báo sự cố / Tạo phiếu
-    {
-        console.log("\n▶ TEST 6: create_ticket (Báo rò rỉ nước)");
-        const { send_message } = createMockSender("TEST 6");
-        const event = {
-            name: "create_ticket",
-            call_id: "call_test_06",
-            arguments: JSON.stringify({
-                ma_danh_bo: "15122890724",
-                loai: "Rò rỉ nước",
-                mo_ta: "Nước tràn ra trước cửa nhà"
-            })
-        };
-        const asteriskData = { caller_phone: "0901234567" };
-        await tool_function_handler(event, asteriskData, send_message);
-    }
+    // {
+    //     console.log("\n▶ TEST 6: create_ticket (Báo rò rỉ nước)");
+    //     const { send_message } = createMockSender("TEST 6");
+    //     const event = {
+    //         name: "create_ticket",
+    //         call_id: "call_test_06",
+    //         arguments: JSON.stringify({
+    //             ma_danh_bo: "151228907241",
+    //             loai: "Rò rỉ nước",
+    //             mo_ta: "Nước tràn ra trước cửa nhà"
+    //         })
+    //     };
+    //     const asteriskData = { caller_phone: "0901234567" };
+    //     await tool_function_handler(event, asteriskData, send_message);
+    // }
 
     console.log("\n================ HOÀN THÀNH TẤT CẢ CÁC BÀI TEST ================");
 }

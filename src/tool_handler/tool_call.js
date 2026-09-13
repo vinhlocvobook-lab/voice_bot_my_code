@@ -69,6 +69,9 @@ export async function transfer_to_agent_handler(function_event, asteriskData, se
         });
 
         referCall(asteriskData.callId, process.env.AGENT_SIP_URI || "sip:200@asterisk");
+        if (asteriskData?.sessionLogger) {
+            asteriskData.sessionLogger.outcome = "transferred"; // 👉 Đánh dấu chuyển máy
+        }
         return;
 
     }
@@ -125,6 +128,9 @@ export async function end_call_handler(function_event, asteriskData, send_messag
         response: { instructions: `Nói nguyên văn trường "say_verbatim_for_user" trong kết quả tool vừa nhận được` }
     });
     hangupCall(asteriskData.callId);
+    if (asteriskData?.sessionLogger) {
+        asteriskData.sessionLogger.outcome = "completed"; // 👉 Đánh dấu cuộc gọi hoàn thành trọn vẹn
+    }
 }
 export function wait_for_user_handler(function_event, asteriskData, send_message) {
     let { name, event_id, response_id, item_id, output_index, call_id, arguments: function_arg } = function_event;

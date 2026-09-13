@@ -550,7 +550,7 @@ export function check_missing_docs_handler(function_event, asteriskData, send_me
     const required = docsReq.required || [];
     const options = docsReq.options || [];
 
-    let daCo = rawArgs.giay_to_da_co;
+    let daCo = args.giay_to_da_co;
     if (typeof daCo === "string") daCo = [daCo];
     if (!Array.isArray(daCo)) daCo = [];
     daCo = daCo.filter((x) => typeof x === "string" && x.trim());

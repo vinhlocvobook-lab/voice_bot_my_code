@@ -1,5 +1,5 @@
 import { baoSuCo } from "../api.js";
-
+import { insertTicket } from "../integrations/calllog-api.js";
 export async function create_ticket_handler(function_event, asteriskData, send_message) {
     // { ma_danh_bo, loai, mo_ta }, callState) {
     // const rs = await resolveDanhBo(ma_danh_bo, callState);
@@ -15,8 +15,16 @@ export async function create_ticket_handler(function_event, asteriskData, send_m
     const { ma_danh_bo, loai, mo_ta } = args;
 
     const noiDung = loai ? `[${loai}] ${mo_ta}` : mo_ta;
-    const r = await baoSuCo(ma_danh_bo, noiDung, asteriskData.caller_phone);
+    const r = await baoSuCo(ma_danh_bo, noiDung, asteriskData.phoneNumber_real || asteriskData.phoneNumber);
     console.log("[handleCreateTicket]:kq_baoSuCo=", r);
+    // Ghi vào bảng ticket qua API
+    insertTicket({
+        callId: asteriskData.callId,
+        customerTel: asteriskData.phoneNumber_real || asteriskData.phoneNumber,
+        args: { ma_danh_bo, loai, mo_ta },
+        output: r,
+    });
+
     if (!r.success) {
         send_message({
             type: "conversation.item.create",
@@ -30,7 +38,7 @@ export async function create_ticket_handler(function_event, asteriskData, send_m
             type: "response.create",
             response: { instructions: "Thông báo với khách, phiếu yêu cầu chưa được ghi nhận, mong quý khách thông cảm và gọi lại sau." }
         });
-        return;
+        return r;
         //return JSON.stringify({ success: false, message: r.message || "Không tạo được phiếu sự cố." });
     }
     send_message({
@@ -45,6 +53,7 @@ export async function create_ticket_handler(function_event, asteriskData, send_m
         type: "response.create",
         response: { instructions: "Thông báo với khách, phiếu yêu cầu đã được ghi nhận, hỏi khách có cần em hỗ trợ gì thêm không." }
     });
+    return r; // 👉 Thêm dòng này để ghi output vào voicebot_toolcall
     // return JSON.stringify({
     //     success: true,
     //     message: r.message || "Phiếu tiếp nhận sự cố đã được ghi nhận.",

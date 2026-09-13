@@ -230,10 +230,12 @@ export const tool_get_bill = {
         required: [],
     },
 }
-export const tool_create_ticket = {
+export const tool_create_ticket_old1 = {
     type: "function",
     name: "create_ticket",
-    description: "Tạo phiếu tiếp nhận phản ánh sự cố, phản ánh, khiếu nại, lời nhắn của khách",
+    description: `
+      - Tạo phiếu tiếp nhận phản ánh sự cố, phản ánh, khiếu nại, lời nhắn của khách
+      - Khi khách hàng có yêu cầu khiếu nại, phản ánh sự cố nước hoặc để lại lời nhắn: Hãy ưu tiên hỏi thông tin vấn đề và gọi tool 'create_ticket' để ghi nhận phiếu trước`,
     parameters: {
         type: "object",
         properties: {
@@ -255,6 +257,32 @@ export const tool_create_ticket = {
         required: ["loai", "mo_ta"],
     },
 }
+export const tool_create_ticket = {
+    type: "function",
+    name: "create_ticket",
+    description: `Tạo phiếu tiếp nhận phản ánh sự cố, khiếu nại hoặc lời nhắn của khách hàng.
+    ĐIỀU KIỆN BẮT BUỘC ĐỂ GỌI TOOL NÀY:
+    1. Cuộc gọi ĐÃ CÓ mã danh bộ được xác nhận.
+    2. Khách hàng ĐÃ NÊU RÕ NỘI DUNG SỰ CỐ CỤ THỂ (ví dụ: nhà bị mất nước, nước yếu, xì bể, đồng hồ kẹt...).
+    TUYỆT ĐỐI CẤM: Nếu khách chỉ mới nói chung chung (như: "tôi muốn phản ánh sự cố", "nhà tôi có sự cố", "tôi muốn khiếu nại"), BẠN KHÔNG ĐƯỢC GỌI TOOL NÀY NGAY, mà PHẢI DÙNG GIỌNG NÓI để hỏi lại khách: "Dạ, Quý khách đang gặp sự cố gì (như mất nước, nước yếu hay xì bể) để em ghi nhận lập phiếu ạ?". Đợi khách mô tả sự cố cụ thể mới được phát sinh function call.`,
+    parameters: {
+        type: "object",
+        properties: {
+            ma_danh_bo: { type: "string", description: "Mã danh bộ gồm 11 chữ số đã xác nhận." },
+            loai: {
+                type: "string",
+                enum: ["su_co", "khieu_nai", "loi_nhan"],
+                description: "Loại yêu cầu: 'su_co' (mất nước, rò rỉ, áp lực yếu, nước đục), 'khieu_nai' (tiền nước, dịch vụ), 'loi_nhan' (nhắn gọi lại).",
+            },
+            mo_ta: {
+                type: "string",
+                description: "Nội dung sự cố DO CHÍNH KHÁCH HÀNG MÔ TẢ TRONG HỘI THOẠI. Tuyệt đối không tự suy diễn hoặc bịa ra nội dung khi khách chưa nói.",
+            },
+        },
+        required: ["ma_danh_bo", "loai", "mo_ta"],
+    },
+};
+
 export const tool_procedure_info_for_organization = {
     type: "function",
     name: "procedure_info_for_organization",
@@ -357,10 +385,24 @@ export const tool_chuyenmay = {
         required: ["ly_do"],
     },
 };
-export const tool_hangup = {
+export const tool_hangup_old1 = {
     type: "function",
     name: "end_call",
     description: "Kết thúc cuộc gọi. GỌI NGAY khi khách chào tạm biệt hoặc hết nhu cầu, sau khi đã nói lời chào tạm biệt.",
+    parameters: {
+        type: "object",
+        properties: {
+            ly_do: { type: "string", description: "Lý do kết thúc" },
+        },
+    },
+}
+export const tool_hangup = {
+    type: "function",
+    name: "end_call",
+    description: `
+    - Mục đích : kết thúc cuộc gọi.
+    - Điều kiện gọi tool end_call: Khi khách không còn nhu cầu hỗ trợ nữa và muốn kết thúc cuộc gọi.
+    `,
     parameters: {
         type: "object",
         properties: {

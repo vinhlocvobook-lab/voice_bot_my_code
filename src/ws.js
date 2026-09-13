@@ -1,7 +1,10 @@
+import fs from "fs";
+import path from "path";
 import WebSocket from "ws";
 import { audio_prompt } from "./prompt.js";
 import { tool_function_handler } from "./tools.js";
 import { log, log_sequenceDiagram, log_conversation } from "./logger.js";
+import { finalizeCallLog } from "./integrations/calllog-api.js";
 const OPENAI_WS_URL = "wss://api.openai.com/v1/realtime";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -23,6 +26,18 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
     asteriskData.functioncall = [];
     asteriskData.conversation = "";
     asteriskData.input_transcript_is_completed = false;
+
+    const sessionLogger = {
+        callId,
+        startTime: new Date(),
+        transcript: [],       // [{ time, speaker: "AI"|"KH", text }]
+        toolCalls: [],        // [{ time, seq, name, args, output, durationMs, apiCalls }]
+        errors: [],
+        outcome: "disconnected",
+        realtimeUsage: { input_tokens: 0, output_tokens: 0, input_token_details: {}, output_token_details: {} },
+        transcriptionUsage: { audio_input_tokens: 0, text_output_tokens: 0, count: 0 },
+    };
+    asteriskData.sessionLogger = sessionLogger;
     // Hàm kích hoạt câu chào
     function triggerGreeting() {
         if (hasGreetingStarted || userHasSpoken) return;
@@ -103,6 +118,76 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
         console.dir(asteriskData.functioncall, { depth: null });
         log.info('========================= close========================');
         if (greetingTimeout) clearTimeout(greetingTimeout);
+
+        // ✅ LƯU CALL SUMMARY VÀO DATABASE
+        const durationSec = Math.round((Date.now() - sessionLogger.startTime.getTime()) / 1000);
+        const document = {
+            meta: {
+                callId,
+                tel: asteriskData.phoneNumber_real || asteriskData.phoneNumber,
+                startTime: sessionLogger.startTime.toISOString(),
+                endTime: new Date().toISOString(),
+                durationSec,
+                outcome: sessionLogger.outcome,
+                model: asteriskData.acceptParams?.model,
+                asterisk: {
+                    uniqueid: asteriskData.uniqueid,
+                    recordPath: asteriskData.recordPath,
+                    phoneNumber: asteriskData.phoneNumber,
+                },
+            },
+            stats: {
+                totalTurns: sessionLogger.transcript.length,
+                toolCallCount: sessionLogger.toolCalls.length,
+                errorCount: sessionLogger.errors.length,
+                danh_bo_value: asteriskData.ma_danh_bo_confirmed ? asteriskData.ma_danh_bo : null,
+            },
+            token_usage: {
+                realtime: {
+                    model: asteriskData.acceptParams?.model,
+                    response_count: sessionLogger.realtimeUsage.response_count || 0,
+                    input_tokens: sessionLogger.realtimeUsage.input_tokens,
+                    output_tokens: sessionLogger.realtimeUsage.output_tokens,
+                    input_details: {
+                        text_tokens: sessionLogger.realtimeUsage.text_input_tokens,
+                        audio_tokens: sessionLogger.realtimeUsage.audio_input_tokens,
+                        cached_text_tokens: sessionLogger.realtimeUsage.cached_text_input_tokens,
+                        cached_audio_tokens: sessionLogger.realtimeUsage.cached_audio_input_tokens,
+                    },
+                    output_details: {
+                        text_tokens: sessionLogger.realtimeUsage.text_output_tokens,
+                        audio_tokens: sessionLogger.realtimeUsage.audio_output_tokens,
+                    },
+                },
+                transcription: {
+                    audio_input_tokens: sessionLogger.transcriptionUsage.audio_input_tokens,
+                    text_output_tokens: sessionLogger.transcriptionUsage.text_output_tokens,
+                }
+            },
+            cost_usd: {
+                total: 0,
+                realtime: { cost: 0 },
+                transcription: { cost: 0 },
+            },
+            summary: null,
+            transcript: sessionLogger.transcript,
+            toolCalls: sessionLogger.toolCalls,
+            call_params: {
+                accept: asteriskData.acceptParams,
+            },
+        };
+
+        // 1. Lưu file JSON cục bộ
+        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "/");
+        const relativeLogPath = `${dateStr}/${asteriskData.phoneNumber}_${callId}.json`;
+        const localFilePath = path.join("logs", "conversation_summary", relativeLogPath);
+        fs.mkdirSync(path.dirname(localFilePath), { recursive: true });
+        fs.writeFileSync(localFilePath, JSON.stringify(document, null, 2), "utf-8");
+
+        // 2. Gọi Pha 2 gửi lên API ghi DB
+        await finalizeCallLog(document, localFilePath, relativeLogPath);
+
+
     });
 
     ws.on("error", (err) => {
@@ -170,6 +255,23 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                 //incomplete : bị giới hạn token, bị kiểm duyệt, audio stream bị lỗi
 
 
+                // ✅ 1. GOM TOKEN USAGE VÀO sessionLogger.realtimeUsage
+                const usage = event?.response?.usage;
+                if (usage) {
+                    const d = usage.input_token_details ?? {};
+                    const od = usage.output_token_details ?? {};
+                    const cd = d.cached_tokens_details ?? {}; // Chi tiết cached từ Realtime API
+                    sessionLogger.realtimeUsage.input_tokens += usage.input_tokens ?? 0;
+                    sessionLogger.realtimeUsage.output_tokens += usage.output_tokens ?? 0;
+                    sessionLogger.realtimeUsage.text_input_tokens += d.text_tokens ?? 0;
+                    sessionLogger.realtimeUsage.audio_input_tokens += d.audio_tokens ?? 0;
+                    sessionLogger.realtimeUsage.cached_text_input_tokens += (cd.text_tokens ?? d.cached_text_tokens ?? 0);
+                    sessionLogger.realtimeUsage.cached_audio_input_tokens += (cd.audio_tokens ?? d.cached_audio_tokens ?? 0);
+                    sessionLogger.realtimeUsage.text_output_tokens += od.text_tokens ?? 0;
+                    sessionLogger.realtimeUsage.audio_output_tokens += od.audio_tokens ?? 0;
+                    sessionLogger.realtimeUsage.response_count = (sessionLogger.realtimeUsage.response_count || 0) + 1;
+                }
+
                 const output = event?.response?.output;
                 if (!Array.isArray(output) || output.length === 0) {
                     log.warn(`[WS][${callId}] response.done KHÔNG có output nào (bot không nói gì, không gọi tool) `);
@@ -230,6 +332,15 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
 
 
 
+
+                sessionLogger.transcript.push({ time: new Date().toISOString(), speaker: "KH", text: txt });
+                if (event.usage) {
+                    sessionLogger.transcriptionUsage.audio_input_tokens += event.usage.input_token_details?.audio_tokens ?? 0;
+                    sessionLogger.transcriptionUsage.text_output_tokens += event.usage.output_token_details?.text_tokens ?? 0;
+                    sessionLogger.transcriptionUsage.count++;
+                }
+
+
                 // KIỂM TRA ECHO PROMPT
                 // const audioPrompt = asteriskData.audio_prompt || "Cuộc gọi tổng đài chăm sóc khách hàng công ty cấp nước tại TP.HCM...";
 
@@ -267,6 +378,15 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                         log.info(`[WS][${callId}][AI nói]: ${txt}`);
                         log_conversation(`AI: ${txt}`, asteriskData.fileName);
                         asteriskData.conversation += `AI: ${aiPart.transcript.trim()}\n`;
+                        // ✅ 2. LƯU CÂU THOẠI AI VÀO TRANSCRIPT (Tránh ghi trùng lặp)
+                        const lastTurn = sessionLogger.transcript[sessionLogger.transcript.length - 1];
+                        if (!(lastTurn && lastTurn.speaker === "AI" && lastTurn.text === txt)) {
+                            sessionLogger.transcript.push({
+                                time: new Date().toISOString(),
+                                speaker: "AI",
+                                text: txt
+                            });
+                        }
                     }
                 }
                 break;
@@ -310,6 +430,14 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                 log_sequenceDiagram(`Note over Code,OpenAI: ${JSON.stringify({ error: event.error })}`, asteriskData.fileName);
                 log.info("....error....");
                 log.error(`[WS][${callId}]OpenAI error: `, event.error);
+                // 👉 Ghi nhận lỗi vào sessionLogger để error_count trong DB phản ánh đúng
+                if (asteriskData?.sessionLogger) {
+                    asteriskData.sessionLogger.errors.push({
+                        time: new Date().toISOString(),
+                        where: "openai_error_event",
+                        message: JSON.stringify(event.error || {}),
+                    });
+                }
                 break;
 
             case "session.created":

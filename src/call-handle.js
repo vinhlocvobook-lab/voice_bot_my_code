@@ -2,7 +2,7 @@ import WebSocket from "ws";
 import { log, log_sequenceDiagram } from "./logger.js";
 import { handle_WebSocket_to_OpenAI } from "./ws.js";
 import { getThongTinKhachHang, getAvailableAgents } from "./integrations/tongdai-api.js";
-import { closeDb, getDanhBoHistory } from "./integrations/calllog-api.js";
+import { closeDb, getDanhBoHistory, insertCallStub } from "./integrations/calllog-api.js";
 import {
     audio_prompt, tool_get_outages, tool_compare_usage, tool_get_bill,
     tool_create_ticket, tool_procedure_info_for_family, tool_check_missing_docs,
@@ -95,6 +95,13 @@ async function acceptCall(callId) {
     //     + Nâng dời đồng hồ nước cho tổ chức, doanh nghiệp, công ty
     // - gọi tool "create_ticket" để tạo ticket : ghi nhận thông tin khiếu nại, lời nhắn của khách hàng
     // - gọi tool "transfer_to_agent" để chuyển máy cho nhân viên khi khách hàng yêu cầu, hoặc các yêu cầu của khách hàng nằm ngoài các nhiệm vụ trên.
+
+
+    //     ## QUY TẮC TẠO PHIẾU SỰ CỐ / KHIẾU NẠI ('create_ticket'):
+    // - Khi khách nói muốn báo sự cố hoặc khiếu nại:
+    //   + Nếu khách CHƯA nói rõ sự cố là gì (chỉ nói "tôi muốn báo sự cố"): Hãy nói giọng nói hỏi khách: "Dạ Quý khách cho em biết nhà mình đang gặp sự cố nước như thế nào (như mất nước, nước yếu hay rò rỉ) để em lập phiếu ạ?".
+    //   + CHỈ GỌI TOOL 'create_ticket' khi khách đã nói rõ chi tiết sự cố. Tuyệt đối không tự bịa mô tả sự cố.
+
     let tools = [
         tool_get_so_danh_bo,
         tool_get_bill,
@@ -236,7 +243,7 @@ async function get_so_danh_bo(tel, callId = '') {
                 .map((c) => String(c?.ma_danh_bo ?? "").replace(/\D/g, ""))
                 .filter(Boolean);
             if (knownDanhBo.length) {
-                log.info(`[Call][${callId}] Lịch sử SĐT ${tel}: ${knownDanhBo.length} mã danh bộ từng xác nhận — đưa vào customerContext.`);
+                log.info(`[Call][${callId}] Lịch sử SĐT ${tel}: ${knownDanhBo.length} mã danh bộ từng xác nhận.`);
             }
         } catch (err) {
             log?.warn?.(`[Call][${callId}] Tra lịch sử danh bộ theo SĐT thất bại (${err.message}), bỏ qua.`);
@@ -251,8 +258,18 @@ export async function handleIncomingCall(callId, fromHeader, asteriskData) {
         log.info(`[handleIncomingCall]: Accepting call, callId = ${callId} ` + "\n\r");
         log_sequenceDiagram(`Code-->> OpenAI: Accept Call, callId = ${callId} `, asteriskData.fileName);
         const t0 = Date.now();
-        let kq_acceptCall = await acceptCall(callId);
+        let acceptParams = await acceptCall(callId);
         console.log(`[CallMgr] accept fetch mất ${Date.now() - t0}ms`);
+        // Pha 1: Ghi dòng "mầm" ngay khi mở cuộc gọi
+        insertCallStub({
+            callId,
+            customerTel: asteriskData.phoneNumber_real || asteriskData.phoneNumber,
+            uniqueid: asteriskData.uniqueid,
+            recordPath: asteriskData.recordPath,
+            voiceModel: acceptParams.model,
+            startTime: new Date().toISOString(),
+        });
+
         let knowDanhbo = await get_so_danh_bo(asteriskData.phoneNumber, callId);
         if (knowDanhbo?.length > 0) {
             asteriskData.ma_danh_bo_list = knowDanhbo;
@@ -262,6 +279,7 @@ export async function handleIncomingCall(callId, fromHeader, asteriskData) {
         }
         // log.info(`[handleIncomingCall]: asteriskData = ` + "\n\r");
         // console.log('handleIncomingCall: asteriskData= ', asteriskData);
+        asteriskData.acceptParams = acceptParams;
         await handle_WebSocket_to_OpenAI(callId, asteriskData);
     } catch (err) {
         log_sequenceDiagram(`Note over Code, OpenAI: Error ${err.message} `, asteriskData.fileName);

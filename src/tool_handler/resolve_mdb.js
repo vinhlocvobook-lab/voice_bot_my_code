@@ -264,6 +264,29 @@ export async function get_so_danh_bo_handler(function_event, asteriskData, send_
 
             // Ngược lại, thông báo cho model Realtime biết mã đã được xác nhận để kích hoạt gọi tool tiếp theo (Cách 1)
             let intent_final = intent_gpt || intent_arg;
+            if (intent_final && intent_final == 'create_ticket') {
+                send_message({
+                    type: "conversation.item.create",
+                    item: {
+                        type: "function_call_output",
+                        call_id: call_id,
+                        output: JSON.stringify({
+                            success: true,
+                            status: "da_xac_nhan",
+                            ma_danh_bo_digits: asteriskData.ma_danh_bo,
+                            ma_danh_bo_characters: format_danh_bo_voice(asteriskData.ma_danh_bo),
+                            instruction: "Mã danh bộ đã được xác nhận thành công. Bạn hãy hỏi khách hàng mô tả rõ sự cố, phản ánh hoặc khiếu nại cần hỗ trợ là gì. TUYỆT ĐỐI CHƯA gọi tool create_ticket khi khách chưa mô tả nội dung."
+                        }),
+                    }
+                });
+                send_message({
+                    type: "response.create",
+                    response: {
+                        instructions: "Thông báo mã danh bộ đã được xác nhận. Hỏi khách hàng đang gặp sự cố gì hoặc muốn khiếu nại nội dung gì để em ghi nhận mở phiếu. Chưa gọi tool create_ticket khi khách chưa nói rõ nội dung."
+                    }
+                });
+                return;
+            }
             if (intent_final && intent_final != 'khác') {
                 send_message({
                     type: "conversation.item.create",
