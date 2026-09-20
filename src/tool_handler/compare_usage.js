@@ -131,7 +131,7 @@ async function get_compare_usage_old(function_event, asteriskData, send_message)
     //     });
     // }
 }
-async function get_compare_usage(function_event, asteriskData, send_message) {
+export async function get_compare_usage(function_event, asteriskData, send_message) {
     const { call_id, arguments: function_arg } = function_event;
     const args = JSON.parse(function_arg || "{}");
     let { ky, nam } = args;

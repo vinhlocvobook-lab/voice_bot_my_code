@@ -11,7 +11,7 @@ function formatThoiGianDuKien(dateTimeStr) {
     }
     return dateTimeStr;
 }
-async function get_outages(function_event, asteriskData, send_message) {
+export async function get_outages(function_event, asteriskData, send_message) {
     const { call_id, arguments: function_arg } = function_event;
     const danhBoVoice = format_danh_bo_voice(asteriskData.ma_danh_bo);
     const args = JSON.parse(function_arg || "{}");

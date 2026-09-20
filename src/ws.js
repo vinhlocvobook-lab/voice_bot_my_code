@@ -5,6 +5,9 @@ import { audio_prompt } from "./prompt.js";
 import { tool_function_handler } from "./tools.js";
 import { log, log_sequenceDiagram, log_conversation } from "./logger.js";
 import { finalizeCallLog } from "./integrations/calllog-api.js";
+import { synthesizeTicket } from "./gpt.js";
+import { baoSuCo } from "./integrations/tongdai-api.js";
+import { insertTicket } from "./integrations/calllog-api.js";
 const OPENAI_WS_URL = "wss://api.openai.com/v1/realtime";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -17,7 +20,30 @@ function send_message(ws, message, callId = "") {
         log.warn(`[WS][${callId}] Khong the gui message vi WebSocket chua OPEN (state=${ws.readyState})`);
     }
 }
+
+
+
 export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
+
+    // Map tạm thời lưu theo session hoặc callId
+    const audioTurnTracking = {
+        speechStartTime: 0,
+        speechDurationMs: 0,
+        lastItemId: null
+    };
+
+    // Hàng đợi FIFO: mỗi lượt VAD phát hiện khách nói được đẩy vào đây khi bắt đầu,
+    // chốt thời lượng khi kết thúc. WebSocket đảm bảo thứ tự message, nên khi
+    // conversation.item.created/added (role user) xuất hiện, lượt ĐẦU TIÊN còn
+    // trong hàng đợi chính là lượt vừa tạo ra item đó — nhờ vậy khớp đúng
+    // item_id với đúng thời lượng nói, kể cả khi nhiều lượt VAD dồn dập.
+    const speechTurnQueue = [];
+    // Map kết quả cuối: item_id -> durationMs (để tra cứu lúc nhận transcript)
+    const speechTurnDurations = new Map();
+
+    let activeResponseId = null;
+    let activeResponseStatus = "idle";
+    // idle | creating | in_progress | completed | cancelled | incomplete
 
     let hasGreetingStarted = false; // Đánh dấu bot đã bắt đầu phản hồi/nói
     let userHasSpoken = false;      // Đánh dấu khách đã cất tiếng
@@ -26,6 +52,29 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
     asteriskData.functioncall = [];
     asteriskData.conversation = "";
     asteriskData.input_transcript_is_completed = false;
+    asteriskData.vad_type = "semantic_vad";
+    asteriskData.hasReadSoDanhBo = false;
+
+    function cancelActiveResponse(reason = "unknown") {
+        if (activeResponseStatus !== "in_progress") {
+            log.info(
+                `[WS][${callId}] Skip response.cancel: ` +
+                `status=${activeResponseStatus}, responseId=${activeResponseId}, reason=${reason}`
+            );
+            return false;
+        }
+
+        activeResponseStatus = "cancelling";
+
+        send_message(ws, { type: "response.cancel" }, callId);
+
+        log.info(
+            `[WS][${callId}] response.cancel sent: ` +
+            `responseId=${activeResponseId}, reason=${reason}`
+        );
+
+        return true;
+    }
 
     const sessionLogger = {
         callId,
@@ -43,7 +92,8 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
         if (hasGreetingStarted || userHasSpoken) return;
 
         log.info(`[WS][${callId}] Triggering initial greeting...`);
-        const greetingInstruction = 'Nói CHÍNH XÁC từng từ của câu chào sau đây, không thêm bớt, không diễn giải lại: " Alo! Alo! Xin chào Quý Khách, Cảm ơn Quý Khách đã gọi đến Tổng đài Công ty Cổ phần Cấp nước Trung An. Em là Trợ lý Ảo Ây Ai, Quý khách cần em hỗ trợ gì ạ? Nếu Quý Khách muốn gặp trực tiếp tổng đài viên thì nói em chuyển máy cho tổng đài viên nhé!"';
+        // const greetingInstruction = 'Nói CHÍNH XÁC từng từ của câu chào sau đây, không thêm bớt, không diễn giải lại: " Alo! Alo! Xin chào Quý Khách, Cảm ơn Quý Khách đã gọi đến Tổng đài Công ty Cổ phần Cấp nước Trung An. Em là Trợ lý Ảo Ây Ai, Quý khách cần em hỗ trợ gì ạ? Nếu Quý Khách muốn gặp trực tiếp tổng đài viên thì nói em chuyển máy cho tổng đài viên nhé!"';
+        const greetingInstruction = 'Nói CHÍNH XÁC từng từ của câu chào sau đây, không thêm bớt, không diễn giải lại: " Alo! Alo! Xin chào Quý Khách, Cảm ơn Quý Khách đã gọi đến Tổng đài Công ty Cổ phần Cấp nước Trung An. Em là Trợ lý Ảo Ây Ai, Quý khách cần em hỗ trợ gì ạ?"';
         log_sequenceDiagram(`Code-->>OpenAI: Triggering initial greeting... response.create`, asteriskData.fileName);
         log_sequenceDiagram(`Note over Code,OpenAI: ${JSON.stringify({ instructions: greetingInstruction })}`, asteriskData.fileName);
         log_conversation(`Code: ${JSON.stringify({ instructions: greetingInstruction })}`, asteriskData.fileName);
@@ -87,7 +137,22 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
         const ratio = matchCount / wordsT.length;
         return ratio >= 0.7 && wordsT.length >= 4;
     }
-
+    /**
+     * Kiểm tra tốc độ nói (số từ / giây) có vượt ngưỡng con người có thể nói được không.
+     * Dùng để phát hiện transcript KHÔNG PHẢI do khách nói (ảo giác của ASR khi nghe
+     * phải im lặng/tạp âm, hoặc âm thanh lạ vọng vào đường truyền).
+     */
+    function isAbnormalSpeechRate(transcript, durationMs) {
+        if (!transcript || !durationMs || durationMs <= 0) return false; // thiếu dữ liệu -> không kết luận
+        const words = transcript.trim().split(/\s+/).filter(Boolean);
+        if (words.length < 6) return false;      // câu quá ngắn, tỷ lệ không đáng tin
+        const seconds = durationMs / 1000;
+        if (seconds < 0.3) return false;         // thời lượng quá ngắn, dữ liệu không ổn định
+        const wordsPerSecond = words.length / seconds;
+        // Người Việt nói tự nhiên, kể cả rất nhanh, hiếm khi vượt 5-6 từ/giây liên tục.
+        // >8 từ/giây gần như chắc chắn không phải giọng nói thật.
+        return wordsPerSecond > 8;
+    }
     const url = `${OPENAI_WS_URL}?call_id=${callId}`;
     console.log("[handle_WebSocket_to_OpenAI]: connecting to Websocket URL =", url, callId);
     log_sequenceDiagram(`Code-->>OpenAI: connect to Websocket`, asteriskData.fileName);
@@ -115,7 +180,43 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
         log.info('========================= close========================');
         log.info(asteriskData.fileName);
         log.info("asteriskData.count_call_Function=", asteriskData.count_call_Function);
-        console.dir(asteriskData.functioncall, { depth: null });
+        // console.dir(asteriskData.functioncall, { depth: null });
+        if (asteriskData?.pendingTicketNotes?.length > 0) {
+            console.log(".....................pendingTicketNotes.....................");
+            // console.dir(asteriskData.pendingTicketNotes, { depth: null });
+
+        }
+        const kq_gpt = await synthesizeTicket(asteriskData);
+        if (!kq_gpt) {
+            log.error(`[WS][${callId}] synthesizeTicket failed`);
+        } else {
+            log.info(`[WS][${callId}] synthesizeTicket success`);
+            console.dir(kq_gpt, { depth: null });
+            const { can_tao_phieu, loai, ma_danh_bo, ten_nguoi_lien_he, dia_chi, so_dien_thoai_lien_he, khung_gio_lien_he, noi_dung_chi_tiet } = kq_gpt;
+            asteriskData.ticket = {
+                loai,
+                ma_danh_bo,
+                ten_nguoi_lien_he,
+                dia_chi,
+                so_dien_thoai_lien_he,
+                khung_gio_lien_he,
+                noi_dung_chi_tiet,
+
+            }
+            if (can_tao_phieu) {
+                // await handle_request_create_ticket(asteriskData);
+                const noiDung = JSON.stringify(asteriskData.ticket, null, 2);
+                const r = await baoSuCo(ma_danh_bo, noiDung, asteriskData.phoneNumber_real || asteriskData.phoneNumber);
+                console.log("[handleCreateTicket]:kq_baoSuCo=", r);
+                // Ghi vào bảng ticket qua API
+                insertTicket({
+                    callId: callId,
+                    customerTel: asteriskData.phoneNumber_real || asteriskData.phoneNumber,
+                    args: { ma_danh_bo, loai, noiDung },
+                    output: r,
+                });
+            }
+        }
         log.info('========================= close========================');
         if (greetingTimeout) clearTimeout(greetingTimeout);
 
@@ -188,6 +289,7 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
         await finalizeCallLog(document, localFilePath, relativeLogPath);
 
 
+
     });
 
     ws.on("error", (err) => {
@@ -237,17 +339,75 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
         }
 
         switch (event.type) {
+            case 'conversation.item.created':
+                console.log("\n\r");
+                log.info("[conversation.item.created]: ");
+                // console.dir(event, { depth: null, colors: true });
+                console.log("ITEM CREATED:", event.type, event.item?.id)
+                // Lưu lại item_id của lượt user nói gần nhất
+                // if (event.item?.role === 'user') {
+                //     audioTurnTracking.lastItemId = event.item.id;
+                //     const turn = speechTurnQueue.shift();
+                //     if (turn && turn.durationMs != null) {
+                //         speechTurnDurations.set(event.item.id, turn.durationMs);
+                //     }
+                // }
+                break;
+            case "conversation.item.added": {
+                console.log("\n\r");
+                log.info("[conversation.item.added]: ", "ITEM CREATED:", event.type, event.item?.id);
+                // console.dir(event, { depth: null, colors: true });
+
+                if (event.item?.role === 'user') {
+                    audioTurnTracking.lastItemId = event.item.id;
+                    const turn = speechTurnQueue.shift();
+                    if (turn && turn.durationMs != null) {
+                        speechTurnDurations.set(event.item.id, turn.durationMs);
+                    }
+                }
+                break;
+            }
+            case "response.output_item.added": {
+                console.log("\n\r");
+                log.info("[response.output_item.added]: ");
+                // console.dir(event, { depth: null, colors: true });
+                break;
+            }
+            case "response.output_item.done": {
+                console.log("\n\r");
+                log.info("[response.output_item.done]: ");
+                // console.dir(event, { depth: null, colors: true });
+                break;
+            }
             case "response.created":
                 log_sequenceDiagram(`OpenAI->>Code: response.created`, asteriskData.fileName);
                 log.info(" ....response.created....: AI bắt đầu sinh phản hồi, do VAD kích hoạt hoặc do code yêu cầu");
+                // console.dir(event, { depth: null, colors: true });
+
+                activeResponseId = event.response?.id ?? event.response_id ?? null;
+                activeResponseStatus = "in_progress";
+
                 hasGreetingStarted = true;
                 if (greetingTimeout) clearTimeout(greetingTimeout);
-                log.info(`[WS][${callId}] AI bắt đầu tạo phản hồi.`);
+                // log.info(`[WS][${callId}] AI bắt đầu tạo phản hồi.`);
                 break;
             case "response.done": {
+                const status = event.response?.status ?? "unknown";
+                const responseId = event.response?.id ?? event.response_id ?? null;
+
+                if (!responseId || responseId === activeResponseId) {
+                    activeResponseId = null;
+                    activeResponseStatus = status;
+                }
+
+                log.info(
+                    `[WS][${callId}] response.done: responseId=${responseId}, status=${status}`
+                );
+
                 log_sequenceDiagram(`OpenAI->>Code: response.done`, asteriskData.fileName);
                 log_sequenceDiagram(`Note over Code,OpenAI: ${JSON.stringify({ status: event?.response?.status })}`, asteriskData.fileName);
                 log.info("....response.done....: AI đã nói xong trọn vẹn câu thoại hoặc bị ngắt/hủy");
+                // console.dir(event, { depth: null, colors: true });
 
                 console.log("...response.done....:event.response.status = ", { status: event?.response?.status });
                 //completed : mô hình sinh xong văn bản, không bị gián đoạn
@@ -283,8 +443,8 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
 
             case "response.function_call_arguments.done":
                 asteriskData.count_call_Function++;
-                log.info("  ....response.function_call_arguments.done....");
-                console.dir(event, { depth: null });
+                // log.info("  ....response.function_call_arguments.done....");
+                // console.dir(event, { depth: null });
                 // const kq_event_function = {
                 //     type: 'response.function_call_arguments.done',
                 //     event_id: 'event_EHxXPjPbQb9fSnLTL2cIZ',
@@ -296,9 +456,9 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                 //     arguments: '{"ma_danh_bo":"12345678910"}'
                 // }
                 let { name, event_id, response_id, item_id, output_index, call_id, arguments: function_arg } = event;
-                log_sequenceDiagram(`OpenAI->>Code: response.function_call_arguments.done : ${name} `, asteriskData.fileName);
+                log_sequenceDiagram(`OpenAI->>Code: Tool được gọi : ${name} `, asteriskData.fileName);
                 log_sequenceDiagram(`Note over Code,OpenAI: ${JSON.stringify({ name, event_id, response_id, item_id, output_index, call_id, function_arg })}`, asteriskData.fileName);
-                log.info(`[WS][${callId}][tool-call-requested]: `, { name, event_id, response_id, item_id, output_index, call_id, function_arg });
+                log.info(`[WS][${callId}][Tool được gọi]: ${name} `, { name, event_id, response_id, item_id, output_index, call_id, function_arg });
                 asteriskData.functioncall.push(event);
                 tool_function_handler(event, asteriskData, (message) => send_message(ws, message, callId));
                 // return {
@@ -323,10 +483,11 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
             // ── Transcription để log cuộc hội thoại ───────────────────────────────
             case "conversation.item.input_audio_transcription.completed": {
                 console.log("\n\r \n\r");
-                log.info("....conversation.item.input_audio_transcription.completed....");
+                // log.info("....conversation.item.input_audio_transcription.completed....");
                 log_sequenceDiagram(`OpenAI->>Code: conversation.item.input_audio_transcription.completed`, asteriskData.fileName);
                 log_sequenceDiagram(`Note over Code,OpenAI: ${JSON.stringify({ transcript: event.transcript?.trim() })}`, asteriskData.fileName);
                 log.info("[conversation.item.input_audio_transcription.completed]: input_text_customer.transcript=", event.transcript?.trim());
+                // console.dir(event, { depth: null, colors: true });
                 log_conversation(`Khách: ${event.transcript?.trim()}`, asteriskData.fileName);
                 const txt = event.transcript?.trim();
 
@@ -340,15 +501,25 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                     sessionLogger.transcriptionUsage.count++;
                 }
 
+                // KIỂM TRA ECHO PROMPT / TỐC ĐỘ NÓI BẤT THƯỜNG
+                const durationMs = speechTurnDurations.get(event.item_id);
+                speechTurnDurations.delete(event.item_id); // dọn dẹp, tránh rò rỉ bộ nhớ theo thời gian
+
+                const laEchoPrompt = isPromptEcho(txt, audio_prompt);
+                const laTocDoBatThuong = isAbnormalSpeechRate(txt, durationMs);
 
                 // KIỂM TRA ECHO PROMPT
                 // const audioPrompt = asteriskData.audio_prompt || "Cuộc gọi tổng đài chăm sóc khách hàng công ty cấp nước tại TP.HCM...";
 
-                if (isPromptEcho(txt, audio_prompt)) {
-                    log.warn(`[WS][${callId}] ⚠️ PHÁT HIỆN ECHO PROMPT! Tiến hành hủy response và xóa item rác: "${txt}"`);
+                if (laEchoPrompt || laTocDoBatThuong) {
+                    const lyDo = laEchoPrompt ? "prompt_echo_detected" : "abnormal_speech_rate";
+                    log.warn(`[WS][${callId}] ⚠️ PHÁT HIỆN TRANSCRIPT BẤT THƯỜNG (${lyDo}, duration=${durationMs}ms)! Tiến hành hủy response và xóa item rác: "${txt}"`);
+
+                    // log.warn(`[WS][${callId}] ⚠️ PHÁT HIỆN ECHO PROMPT! Tiến hành hủy response và xóa item rác: "${txt}"`);
 
                     // 1. Hủy ngay lập tức phản hồi AI đang sinh (nếu có)
-                    send_message(ws, { type: "response.cancel" }, callId);
+                    // send_message(ws, { type: "response.cancel" }, callId);
+                    cancelActiveResponse(lyDo);
                     // 2. Xóa item này khỏi session Realtime để AI không ghi nhớ
                     if (event.item_id) {
                         send_message(ws, {
@@ -368,6 +539,8 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
             }
             case "conversation.item.done": {
                 log.info("....conversation.item.done....");
+                // console.log("\n\r");
+                // console.dir(event, { depth: null, colors: true });
                 log_sequenceDiagram(`OpenAI->>Code: conversation.item.done`, asteriskData.fileName);
                 log_sequenceDiagram(`Note over Code,OpenAI: ${JSON.stringify({ content: event?.item?.content })}`, asteriskData.fileName);
                 const content = event?.item?.content;
@@ -402,16 +575,23 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
             }
 
             case "input_audio_buffer.speech_started":
+                audioTurnTracking.speechStartTime = Date.now();
+                speechTurnQueue.push({ startMs: Date.now(), durationMs: null });
                 asteriskData.input_transcript_is_completed = false;
                 log.info("....input_audio_buffer.speech_started....");
                 log_sequenceDiagram(`OpenAI->>Code: input_audio_buffer.speech_started`, asteriskData.fileName);
                 userHasSpoken = true;
                 if (greetingTimeout) clearTimeout(greetingTimeout);
-                log.info(`[WS][${callId}] Khách hàng bắt đầu nói.`);
+                // log.info(`[WS][${callId}] Khách hàng bắt đầu nói.`);
                 break;
 
 
             case "input_audio_buffer.speech_stopped":
+                audioTurnTracking.speechDurationMs = Date.now() - audioTurnTracking.speechStartTime;
+                const cur = speechTurnQueue[speechTurnQueue.length - 1];
+                if (cur && cur.durationMs == null) {
+                    cur.durationMs = Date.now() - cur.startMs;
+                }
                 log_sequenceDiagram(`OpenAI->>Code: input_audio_buffer.speech_stopped`, asteriskData.fileName);
                 log.info("....input_audio_buffer.speech_stopped....");
                 break;
@@ -448,7 +628,18 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                 break;
 
             case "session.updated": {
-                log.info("....session.updated....");
+                console.log("**************************************************");
+                log.info("***************************....session.updated....***");
+
+                // console.dir(event, { depth: null, colors: true });
+                // asteriskData.vad_type = event?.audio?.input?.turn_detection?.type;
+                asteriskData.vad_type = event?.session?.audio?.input?.turn_detection?.type;
+                const interrupt_response = event?.session?.audio?.input?.turn_detection?.interrupt_response;
+                if (interrupt_response === false) {
+                    asteriskData.vad_type += "_no_interrupt";
+                }
+                log.info("asteriskData.vad_type: ", asteriskData.vad_type);
+                console.log("**************************************************");
                 log_sequenceDiagram(`OpenAI->>Code: session.updated`, asteriskData.fileName);
                 break;
             }

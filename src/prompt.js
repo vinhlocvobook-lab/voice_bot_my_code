@@ -257,32 +257,186 @@ export const tool_create_ticket_old1 = {
         required: ["loai", "mo_ta"],
     },
 }
-export const tool_create_ticket = {
+// 1. Cuộc gọi ĐÃ CÓ mã danh bộ được xác nhận.
+export const tool_create_ticket_old2 = {
     type: "function",
     name: "create_ticket",
-    description: `Tạo phiếu tiếp nhận phản ánh sự cố, khiếu nại hoặc lời nhắn của khách hàng.
+    description: `
+    Mục đích : ghi nhận thông tin nội dung phản ánh sự cố, khiếu nại hoặc lời nhắn của khách hàng.
     ĐIỀU KIỆN BẮT BUỘC ĐỂ GỌI TOOL NÀY:
-    1. Cuộc gọi ĐÃ CÓ mã danh bộ được xác nhận.
-    2. Khách hàng ĐÃ NÊU RÕ NỘI DUNG SỰ CỐ CỤ THỂ (ví dụ: nhà bị mất nước, nước yếu, xì bể, đồng hồ kẹt...).
-    TUYỆT ĐỐI CẤM: Nếu khách chỉ mới nói chung chung (như: "tôi muốn phản ánh sự cố", "nhà tôi có sự cố", "tôi muốn khiếu nại"), BẠN KHÔNG ĐƯỢC GỌI TOOL NÀY NGAY, mà PHẢI DÙNG GIỌNG NÓI để hỏi lại khách: "Dạ, Quý khách đang gặp sự cố gì (như mất nước, nước yếu hay xì bể) để em ghi nhận lập phiếu ạ?". Đợi khách mô tả sự cố cụ thể mới được phát sinh function call.`,
+    - Khách hàng ĐÃ NÊU RÕ NỘI DUNG SỰ CỐ CỤ THỂ (ví dụ: nhà bị mất nước, nước yếu, xì bể, đồng hồ kẹt...).
+    - Nếu khách chỉ mới nói chung chung (như: "tôi muốn phản ánh sự cố", "nhà tôi có sự cố", "tôi muốn khiếu nại"), 
+    thì cần phải hỏi lại khách nội dung chi tiết phản ánh sự cố, khiếu nại hoặc lời nhắn của khách. Đợi khách mô tả sự cố cụ thể mới gọi tool "create_ticket" này.`,
     parameters: {
         type: "object",
         properties: {
-            ma_danh_bo: { type: "string", description: "Mã danh bộ gồm 11 chữ số đã xác nhận." },
+            ma_danh_bo: { type: "string", description: "Mã danh bộ gồm 11 chữ số đã xác nhận (tùy chọn)." },
             loai: {
                 type: "string",
-                enum: ["su_co", "khieu_nai", "loi_nhan"],
-                description: "Loại yêu cầu: 'su_co' (mất nước, rò rỉ, áp lực yếu, nước đục), 'khieu_nai' (tiền nước, dịch vụ), 'loi_nhan' (nhắn gọi lại).",
+                enum: ["su_co", "khieu_nai", "loi_nhan", "khac"],
+                description: "Loại yêu cầu: 'su_co' (mất nước, rò rỉ, áp lực yếu, nước đục), 'khieu_nai' (tiền nước, dịch vụ), 'loi_nhan' (lời nhắn), 'khac' (khác).",
             },
             mo_ta: {
                 type: "string",
-                description: "Nội dung sự cố DO CHÍNH KHÁCH HÀNG MÔ TẢ TRONG HỘI THOẠI. Tuyệt đối không tự suy diễn hoặc bịa ra nội dung khi khách chưa nói.",
+                description: `Nội dung chi tiết phản ánh sự cố, khiếu nại hoặc lời nhắn của khách hàng. Tuyệt đối không tự suy diễn hoặc bịa ra nội dung khi khách chưa nói hoặc mới nói chung chung (như: "tôi muốn phản ánh sự cố", "nhà tôi có sự cố", "tôi muốn khiếu nại",...).`,
             },
         },
-        required: ["ma_danh_bo", "loai", "mo_ta"],
+        required: ["loai", "mo_ta"],
     },
 };
+export const tool_create_ticket_old3 = {
+    type: "function",
+    name: "create_ticket",
+    description: `
+    Mục đích : ghi nhận thông tin nội dung phản ánh sự cố, khiếu nại hoặc lời nhắn của khách hàng.
+    Nội dung ghi nhận :
+    - ten (Tên) : Tên khách hàng
+    - mo_ta (Nội dung) : Nội dung chi tiết phản ánh sự cố, khiếu nại hoặc lời nhắn của khách hàng.
+    ĐIỀU KIỆN BẮT BUỘC ĐỂ GỌI TOOL NÀY:
+    - Hãy hỏi khách tên của khách hàng, 
+    - Nếu khách chỉ mới nói chung chung (như: "tôi muốn phản ánh sự cố", "nhà tôi có sự cố", "tôi muốn khiếu nại"), 
+    thì cần phải hỏi lại khách nội dung chi tiết phản ánh sự cố, khiếu nại hoặc lời nhắn của khách. Đợi khách mô tả sự cố cụ thể mới gọi tool "create_ticket" này.`,
+    parameters: {
+        type: "object",
+        properties: {
+            ma_danh_bo: { type: "string", description: "Mã danh bộ gồm 11 chữ số đã xác nhận (tùy chọn)." },
+            loai: {
+                type: "string",
+                enum: ["su_co", "khieu_nai", "loi_nhan", "khac"],
+                description: "Loại yêu cầu: 'su_co' (mất nước, rò rỉ, áp lực yếu, nước đục), 'khieu_nai' (tiền nước, dịch vụ), 'loi_nhan' (lời nhắn), 'khac' (khác).",
+            },
+            ten: {
+                type: "string",
+                description: "Tên khách hàng",
+            },
+            mo_ta: {
+                type: "string",
+                description: `Nội dung chi tiết phản ánh sự cố, khiếu nại hoặc lời nhắn của khách hàng. Tuyệt đối không tự suy diễn hoặc bịa ra nội dung khi khách chưa nói hoặc mới nói chung chung (như: "tôi muốn phản ánh sự cố", "nhà tôi có sự cố", "tôi muốn khiếu nại",...).`,
+            },
+            summary: {
+                type: "string",
+                description: "Tóm tắt nội dung cuộc gọi",
+            }
+        },
+        required: ["loai", "mo_ta", "ten", "summary"],
+    },
+};
+export const tool_create_ticket_chuatest = {
+    type: "function",
+    name: "create_ticket",
+    description: `
+    Mục đích : GHI NHẬN (chưa gửi ngay) thông tin phản ánh sự cố, khiếu nại hoặc lời nhắn của khách hàng.
+    Phiếu THẬT sẽ được hệ thống tự động tổng hợp và tạo khi cuộc gọi kết thúc — bạn KHÔNG cần và KHÔNG được thông báo với khách là "đã tạo phiếu xong", chỉ cần xác nhận "đã ghi nhận".
+    Có thể gọi tool này NHIỀU LẦN trong cùng 1 cuộc gọi nếu khách cung cấp thêm chi tiết (địa chỉ, số điện thoại liên hệ, giờ liên hệ, mô tả bổ sung...) — mỗi lần gọi thêm sẽ được cộng dồn, không cần lo trùng lặp.
+    ĐIỀU KIỆN GỌI TOOL:
+    - Khách đã nêu ít nhất nội dung sự cố/phản ánh/lời nhắn cụ thể (không cần đợi đủ tên/SĐT/địa chỉ mới được gọi).
+    - Nếu khách chỉ mới nói chung chung (như: "tôi muốn phản ánh sự cố"), hãy hỏi lại khách mô tả cụ thể hơn trước khi gọi.`,
+    parameters: {
+        type: "object",
+        properties: {
+            ma_danh_bo: { type: "string", description: "Mã danh bộ gồm 11 chữ số đã xác nhận, nếu có." },
+            loai: {
+                type: "string",
+                enum: ["su_co", "khieu_nai", "loi_nhan", "khac"],
+                description: "Loại yêu cầu: 'su_co' (mất nước, rò rỉ, áp lực yếu, nước đục), 'khieu_nai' (tiền nước, dịch vụ), 'loi_nhan' (lời nhắn), 'khac' (khác). Để trống nếu chưa rõ.",
+            },
+            ten: {
+                type: "string",
+                description: "Tên khách hàng, nếu khách có cung cấp.",
+            },
+            tel: {
+                type: "string",
+                description: "Số điện thoại khách hàng, nếu khách có cung cấp.",
+            },
+            dia_chi: {
+                type: "string",
+                description: "Địa chỉ khách hàng, nếu khách có cung cấp, nếu có",
+            },
+            noi_dung_chi_tiet: {
+                type: "string",
+                description: `Nội dung chi tiết phản ánh/sự cố/lời nhắn khách vừa cung cấp ở lượt nói này (có thể là bổ sung thêm cho lần gọi trước). Tuyệt đối không tự suy diễn hoặc bịa nội dung khi khách chưa nói.`,
+            },
+        },
+        required: ["noi_dung_chi_tiet"],
+    },
+};
+export const tool_create_ticket = {
+    type: "function",
+    name: "create_ticket",
+    description: `
+Ghi nhận tạm thời thông tin phản ánh sự cố, khiếu nại hoặc lời nhắn của khách hàng.
+Tool này KHÔNG tạo phiếu chính thức ngay lúc gọi. Phiếu thật chỉ được hệ thống
+tổng hợp và tạo khi cuộc gọi kết thúc.
 
+Sau khi gọi tool thành công, chỉ xác nhận với khách là "đã ghi nhận thông tin";
+KHÔNG nói hoặc ngụ ý rằng "đã tạo phiếu", "phiếu đã hoàn tất", hoặc "đã gửi
+đến bộ phận xử lý".
+
+Gọi tool khi khách đã nêu ít nhất một nội dung cụ thể về sự cố, phản ánh,
+yêu cầu hoặc lời nhắn. Không cần chờ đủ mã danh bộ, tên, địa chỉ hoặc số điện thoại.
+
+Có thể gọi lại tool khi khách cung cấp thông tin MỚI, bổ sung chi tiết,
+đính chính hoặc thay đổi thông tin đã nói. Không gọi lại chỉ để lặp lại
+nguyên văn thông tin đã được ghi nhận.
+
+Nếu khách chỉ nói chung chung như "tôi muốn phản ánh sự cố", hãy hỏi khách
+mô tả cụ thể trước khi gọi tool. Chỉ ghi lại thông tin khách đã nói;
+không suy diễn, không bịa, không tự điền thông tin chưa xác nhận.
+`,
+    parameters: {
+        type: "object",
+        properties: {
+            ma_danh_bo: {
+                type: "string",
+                pattern: "^\\d{11}$",
+                description:
+                    `Mã danh bộ gồm đúng 11 chữ số, chỉ điền khi khách đã cung cấp rõ và xác nhận. 
+                    Không truyền field này nếu chưa chắc chắn. 
+                    Hỏi khách khách thông tin này trước khi gọi tool, nếu khách không cung cấp thì để trống.`,
+            },
+            loai: {
+                type: "string",
+                enum: ["su_co", "khieu_nai", "loi_nhan", "khac"],
+                description:
+                    "Phân loại nếu đã rõ: su_co cho vấn đề nước/kỹ thuật; " +
+                    "khieu_nai cho hóa đơn hoặc dịch vụ; loi_nhan cho lời nhắn; " +
+                    "khac cho nội dung còn lại. Không truyền field này nếu chưa rõ.",
+            },
+            ten: {
+                type: "string",
+                description:
+                    `Tên người đang liên hệ hoặc người khách yêu cầu liên hệ lại, nếu được nói rõ.
+                    Hỏi khách khách thông tin này trước khi gọi tool, nếu khách không cung cấp thì để trống.`,
+            },
+            dia_chi: {
+                type: "string",
+                description:
+                    `Địa chỉ hoặc khu vực xảy ra sự cố/phản ánh, nếu khách cung cấp.
+                    Hỏi khách khách thông tin này trước khi gọi tool, nếu khách không cung cấp thì để trống.`,
+            },
+            so_dien_thoai_lien_he: {
+                type: "string",
+                description:
+                    `Số điện thoại khách muốn được liên hệ lại, nếu khách cung cấp rõ.
+                    Hỏi khách khách thông tin này trước khi gọi tool, nếu khách không cung cấp thì để trống.`,
+            },
+            khung_gio_lien_he: {
+                type: "string",
+                description:
+                    `Khung giờ hoặc thời điểm khách muốn được liên hệ lại, nếu có.
+                    Hỏi khách khách thông tin này trước khi gọi tool, nếu khách không cung cấp thì để trống.`,
+            },
+            noi_dung_chi_tiet: {
+                type: "string",
+                description:
+                    "Nội dung cụ thể khách vừa cung cấp ở lượt nói này. Có thể là " +
+                    "mô tả sự cố, lời nhắn, thông tin bổ sung hoặc nội dung đính chính. " +
+                    "Không suy diễn hoặc thêm dữ liệu khách chưa nói.",
+            },
+        },
+        required: ["noi_dung_chi_tiet"],
+    },
+};
 export const tool_procedure_info_for_organization = {
     type: "function",
     name: "procedure_info_for_organization",
@@ -407,6 +561,7 @@ export const tool_hangup = {
         type: "object",
         properties: {
             ly_do: { type: "string", description: "Lý do kết thúc" },
+            summary: { type: "string", description: "Tóm tắt nội dung cuộc gọi" },
         },
     },
 }
@@ -531,7 +686,7 @@ export const session_update_semantic_vad = {
         }
     }
 }
-export const session_update_waitfordigits = {
+export const session_update_semantic_vad_no_interrupt = {
     type: "session.update",
     session: {
         type: "realtime",
@@ -540,10 +695,44 @@ export const session_update_waitfordigits = {
                 "turn_detection": {
                     "type": "semantic_vad",
                     "eagerness": "low",//"auto",
-                    "create_response": false,
+                    "create_response": true,
                     "interrupt_response": false
                 }
             }
         }
+    }
+}
+export const session_update_waitfordigits = {
+    type: "session.update",
+    session: {
+        type: "realtime",
+        audio: {
+            input: {
+                "turn_detection": {
+                    "type": "server_vad",
+                    "threshold": 0.5,
+                    "prefix_padding_ms": 300,
+                    "silence_duration_ms": 5000,
+                    "create_response": true,
+                    "interrupt_response": true
+                }
+            }
+        }
+    }
+}
+
+export function set_wait_for_digits(vad_type = "", send_message) {
+    if (vad_type != "server_vad") {
+        send_message(session_update_waitfordigits);
+    }
+}
+export function set_semantic_vad(vad_type = "", send_message) {
+    if (vad_type != "semantic_vad") {
+        send_message(session_update_semantic_vad);
+    }
+}
+export function set_semantic_vad_no_interrupt(vad_type = "", send_message) {
+    if (vad_type != "semantic_vad_no_interrupt") {
+        send_message(session_update_semantic_vad_no_interrupt);
     }
 }

@@ -47,6 +47,7 @@ export async function transfer_to_agent_handler(function_event, asteriskData, se
     } catch (e) {
         log.warn(`[tools][transfer_to_agent] Không lấy được trạng thái tổng đài viên (${e.message}) — coi như không có ai rảnh.`);
     }
+    console.log("availableAgents", availableAgents);
     //  data: { available_agents: 0, queue: 'GroupDay5' }
     let { available_agents, queue } = availableAgents?.data || {};
     // available_agents = 1;
@@ -65,7 +66,7 @@ export async function transfer_to_agent_handler(function_event, asteriskData, se
         });
         send_message({
             type: "response.create",
-            response: { instructions: `Nói nguyên văn trường "say_verbatim_for_user" trong kết quả tool vừa nhận được` }
+            response: { instructions: `Nói nguyên văn trường "say_verbatim_for_user" trong kết quả tool vừa nhận được, không cần thêm bớt hoặc diễn giải gì thêm.` }
         });
 
         referCall(asteriskData.callId, process.env.AGENT_SIP_URI || "sip:200@asterisk");
@@ -87,14 +88,14 @@ export async function transfer_to_agent_handler(function_event, asteriskData, se
                 action: "create_ticket",
                 say_verbatim_for_user:
                     "Dạ, hiện tại các tổng đài viên đều bận. Quý Khách có muốn " +
-                    "để lại lời nhắn để nhân viên liên hệ lại không ạ?",
+                    "để lại thêm lời nhắn thì cho em biết, em sẽ ghi nhận lại ạ!",
             }),
         }
     });
 
     send_message({
         type: "response.create",
-        response: { instructions: `Nói nguyên văn trường "say_verbatim_for_user" trong kết quả tool vừa nhận được` }
+        response: { instructions: `Nói nguyên văn trường "say_verbatim_for_user" trong kết quả tool vừa nhận được, không cần thêm bớt hoặc diễn giải gì thêm.` }
     });
 }
 export async function end_call_handler(function_event, asteriskData, send_message) {

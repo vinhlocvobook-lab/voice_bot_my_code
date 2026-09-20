@@ -2,7 +2,15 @@ import { get_so_danh_bo } from "../gpt.js";
 import { log } from "../logger.js";
 import { valid_ma_danh_bo, format_danh_bo_voice } from "./tool_helper.js";
 
-function sdb_doc_mdb_chua_co(function_event, send_message) {
+import { set_wait_for_digits, set_semantic_vad, set_semantic_vad_no_interrupt } from "../prompt.js"
+import { get_outages } from "./outages.js";
+import { get_trang_thai_thanh_toan } from "./bill.js";
+import { get_compare_usage } from "./compare_usage.js";
+
+
+function sdb_doc_mdb_chua_co(function_event, send_message, vad_type = "") {
+    console.log("\n\r");
+    console.log("[sdb_doc_mdb_chua_co]: bắt đầu");
     const cauThoai = "Dạ, Quý khách vui lòng đọc mã danh bộ, 11 chữ số, đọc liên tục, liền mạch, không ngắt quãng giúp em ạ!";
     send_message({
         type: "conversation.item.create",
@@ -20,9 +28,13 @@ function sdb_doc_mdb_chua_co(function_event, send_message) {
         type: "response.create",
         response: { instructions: `Nói CHÍNH XÁC từng từ của câu sau, không thêm bớt: "${cauThoai}"` }
     });
+
+    set_wait_for_digits(vad_type, send_message);
+
 }
-function sdb_doc_mdb_chua_du(function_event, send_message) {
-    const cauThoai = "Dạ, em đang nghe ạ, mời Quý khách tiếp tục hoặc đọc lại mã danh bộ, 11 chữ số, đọc liên tục, liền mạch giúp em ạ!";
+
+function sdb_doc_mdb_chua_du(function_event, send_message, vad_type = "") {
+
     send_message({
         type: "conversation.item.create",
         item: {
@@ -30,8 +42,8 @@ function sdb_doc_mdb_chua_du(function_event, send_message) {
             call_id: function_event.call_id,
             output: JSON.stringify({
                 success: true,
-                status: "chưa ghi nhận đủ số mã danh bộ",
-                say_verbatim: cauThoai
+                status: "Đang đợi khách đọc đủ mã danh bộ",
+                say_verbatim: "Dạ, em đang nghe ạ, mời Quý khách đọc tiếp hoặc đọc lại mã danh bộ, 11 chữ số, đọc liên tục, liền mạch giúp em ạ!"
             }),
         }
     });
@@ -40,8 +52,10 @@ function sdb_doc_mdb_chua_du(function_event, send_message) {
         response: { instructions: `Nói nguyên văn trường "say_verbatim" trong kết quả tool vừa nhận được` }
 
     });
+    set_wait_for_digits(vad_type, send_message);
+
 }
-function sdb_doc_mdb_sai(function_event, send_message) {
+function sdb_doc_mdb_sai(function_event, send_message, vad_type = "") {
     const cauThoai = "Dạ, em xin lỗi! Quý khách vui lòng đọc lại mã danh bộ, 11 chữ số, đọc liên tục, liền mạch, không ngắt quãng giúp em ạ!";
     send_message({
         type: "conversation.item.create",
@@ -60,10 +74,13 @@ function sdb_doc_mdb_sai(function_event, send_message) {
         type: "response.create",
         response: { instructions: `Nói CHÍNH XÁC từng từ của câu sau, không thêm bớt: "${cauThoai}"` }
     });
+
+    set_wait_for_digits(vad_type, send_message);
+
 }
-function sdb_chuaro(function_event, send_message, mdb_gpt) {
+function sdb_chuaro(function_event, send_message, mdb_gpt, vad_type = "") {
     if (typeof mdb_gpt == "undefined" || mdb_gpt == null || mdb_gpt == "") {
-        sdb_doc_mdb_chua_co(function_event, send_message)
+        sdb_doc_mdb_chua_co(function_event, send_message, vad_type)
         return;
     }
     send_message({
@@ -83,11 +100,11 @@ function sdb_chuaro(function_event, send_message, mdb_gpt) {
         type: "response.create",
         response: { instructions: `Nói nguyên văn trường "say_verbatim" trong kết quả tool vừa nhận được` }
     })
-
+    set_wait_for_digits(vad_type, send_message);
 }
-function sdb_vanchuaro(function_event, send_message, mdb_gpt) {
+function sdb_vanchuaro(function_event, send_message, mdb_gpt, vad_type = "") {
     if (typeof mdb_gpt == "undefined" || mdb_gpt == null || mdb_gpt == "") {
-        sdb_doc_mdb_chua_co(function_event, send_message)
+        sdb_doc_mdb_chua_co(function_event, send_message, vad_type)
         return;
     }
     send_message({
@@ -108,11 +125,11 @@ function sdb_vanchuaro(function_event, send_message, mdb_gpt) {
         type: "response.create",
         response: { instructions: `Nói nguyên văn trường "say_verbatim" trong kết quả tool vừa nhận được` }
     })
-
+    set_wait_for_digits(vad_type, send_message);
 }
-function sdb_mdb_chua_dung(function_event, send_message, mdb_gpt) {
+function sdb_mdb_chua_dung(function_event, send_message, mdb_gpt, vad_type = "") {
     if (typeof mdb_gpt == "undefined" || mdb_gpt == null || mdb_gpt == "") {
-        sdb_doc_mdb_chua_co(function_event, send_message)
+        sdb_doc_mdb_chua_co(function_event, send_message, vad_type)
         return;
     }
     send_message({
@@ -133,9 +150,9 @@ function sdb_mdb_chua_dung(function_event, send_message, mdb_gpt) {
         type: "response.create",
         response: { instructions: `Nói nguyên văn trường "say_verbatim" trong kết quả tool vừa nhận được` }
     })
-
+    set_wait_for_digits(vad_type, send_message);
 }
-function sdb_doc_xacnhan_v0(function_event, send_message, ma_danh_bo) {
+function sdb_doc_xacnhan_v0(function_event, send_message, ma_danh_bo, vad_type = "") {
     send_message({
         type: "conversation.item.create",
         item: {
@@ -154,10 +171,11 @@ function sdb_doc_xacnhan_v0(function_event, send_message, ma_danh_bo) {
         type: "response.create",
         response: { instructions: `Đọc câu chính xác câu để khách hàng xác nhận và không thêm bất cứ lời dẫn dắt nào khác: "Dạ, Mã danh bộ của Quý khách là ${format_danh_bo_voice(ma_danh_bo)}, Quý khách xác nhận giúp em có đúng không ạ!"` }
     })
-
+    set_semantic_vad(vad_type, send_message);
 }
-function sdb_doc_xacnhan(function_event, send_message, ma_danh_bo) {
+function sdb_doc_xacnhan(function_event, send_message, ma_danh_bo, vad_type = "") {
     const loi_thoai = `Dạ, Mã danh bộ của Quý khách là ${format_danh_bo_voice(ma_danh_bo)}, Quý khách xác nhận giúp em có đúng không ạ!`;
+    set_semantic_vad_no_interrupt(vad_type, send_message);
     send_message({
         type: "conversation.item.create",
         item: {
@@ -178,10 +196,14 @@ function sdb_doc_xacnhan(function_event, send_message, ma_danh_bo) {
             instructions: `Nói CHÍNH XÁC từng từ của câu sau, không thêm bớt: "${loi_thoai}"`
         }
     });
+    set_semantic_vad(vad_type, send_message);
 }
 export async function get_so_danh_bo_handler(function_event, asteriskData, send_message, call_from = '') {
+    log.info("....get_so_danh_bo_handler....,asteriskData");
+    log.info("asteriskData.vad_type: ", asteriskData.vad_type);
+    log.info("asteriskData.hasReadSoDanhBo: ", asteriskData.hasReadSoDanhBo);
     const { call_id, name } = function_event;
-
+    const vad_type = asteriskData?.vad_type || "";
     // Parse arguments từ model nếu có
     let args = {};
     try {
@@ -204,12 +226,24 @@ export async function get_so_danh_bo_handler(function_event, asteriskData, send_
         console.log("do có số danh bộ theo tel hoặc lịch sử gọi nên, bắt đầu giai đoạn xác nhận");
         asteriskData.ma_danh_bo_checking = asteriskData.ma_danh_bo_list[0];
         asteriskData.ma_danh_bo_phase = 2;
-        sdb_doc_xacnhan(function_event, send_message, asteriskData.ma_danh_bo_checking)
+        sdb_doc_xacnhan(function_event, send_message, asteriskData.ma_danh_bo_checking, vad_type)
         return;
     }
     let kq_arbiter = null;
     try {
-        kq_arbiter = await get_so_danh_bo(asteriskData);
+        if (asteriskData.hasReadSoDanhBo) {
+            kq_arbiter = await get_so_danh_bo(asteriskData);
+            log.info("kq_arbiter: ");
+            console.dir(kq_arbiter, { depth: null });
+
+            log.info("cài đặt asteriskData.hasReadSoDanhBo = true");
+        } else {
+            log.info("asteriskData.hasReadSoDanhBo = false, nên không cần chạy gpt");
+        }
+        asteriskData.hasReadSoDanhBo = true;
+        // else {
+        //     kq_arbiter = {intent: "co_so_danh_bo", ma_danh_bo: asteriskData.ma_danh_bo_list[0], ma_danh_bo_length: asteriskData.ma_danh_bo_list[0].length, do_tin_cay: 1, ly_do: "Đã có số danh bộ theo tel hoặc lịch sử gọi"};
+        // }
     } catch (error) {
         if (error.message === "old_tool") {
             log.warn("[tools][get_so_danh_bo_handler] old_tool - cancelled");
@@ -225,9 +259,9 @@ export async function get_so_danh_bo_handler(function_event, asteriskData, send_
     const { intent: intent_gpt, ma_danh_bo: mdb_gpt, xac_nhan: xac_nhan_gpt, ma_danh_bo_length, do_tin_cay, ly_do } = kq_arbiter || {};
 
     let xac_nhan = "chưa_xác_nhận";
-    if (xac_nhan_gpt === "đúng" || xac_nhan_arg === "đúng") {
+    if (xac_nhan_gpt === "đúng") {
         xac_nhan = "đúng";
-    } else if (xac_nhan_gpt === "sai" || xac_nhan_arg === "sai") {
+    } else if (xac_nhan_gpt === "sai") {
         xac_nhan = "sai";
     }
     // Chuẩn hóa kết quả xác nhận và số danh bộ
@@ -241,13 +275,27 @@ export async function get_so_danh_bo_handler(function_event, asteriskData, send_
         // 1.1. Khách xác nhận ĐÚNG hoặc đọc lại trùng khớp với mã đang kiểm tra
         // if (xacNhanNormalized === "đúng" || (valid_mdb && valid_mdb === asteriskData.ma_danh_bo_checking)) {
         if (xac_nhan == "đúng") {
-            asteriskData.ma_danh_bo = valid_mdb;
+            const confirmedMdb = asteriskData.ma_danh_bo_checking;
+
+            if (!valid_ma_danh_bo(confirmedMdb)) {
+                log.error(
+                    "[tools][get_so_danh_bo_handler] Invalid checking MDB before confirm",
+                    { confirmedMdb, callId: call_id }
+                );
+
+                asteriskData.ma_danh_bo_checking = "";
+                asteriskData.ma_danh_bo_phase = 1;
+
+                return sdb_doc_mdb_chua_co(function_event, send_message, vad_type);
+            }
+            asteriskData.ma_danh_bo = confirmedMdb;//valid_mdb;
             asteriskData.ma_danh_bo_confirmed = true;
             asteriskData.ma_danh_bo_phase = 4;
             asteriskData.ma_danh_bo_checking = "";
             asteriskData.ma_danh_bo_count = 0;
             console.log("[tools][get_so_danh_bo_handler] ĐÃ XÁC NHẬN THÀNH CÔNG:", asteriskData.ma_danh_bo);
 
+            set_semantic_vad(vad_type, send_message);
             // Nếu khách đang có yêu cầu tra cứu hóa đơn tiền nước chờ xử lý (pending_action === 'get_bill')
             // console.log("[tools][get_so_danh_bo_handler]: asteriskData.pending_action =  ", asteriskData.pending_action);
             if (call_from == "get_trang_thai_thanh_toan") {
@@ -285,6 +333,7 @@ export async function get_so_danh_bo_handler(function_event, asteriskData, send_
                         instructions: "Thông báo mã danh bộ đã được xác nhận. Hỏi khách hàng đang gặp sự cố gì hoặc muốn khiếu nại nội dung gì để em ghi nhận mở phiếu. Chưa gọi tool create_ticket khi khách chưa nói rõ nội dung."
                     }
                 });
+                set_semantic_vad(vad_type, send_message);
                 return;
             }
             if (intent_final && intent_final != 'khác') {
@@ -308,6 +357,7 @@ export async function get_so_danh_bo_handler(function_event, asteriskData, send_
                         instructions: `Mã danh bộ ${asteriskData.ma_danh_bo} đã được xác nhận thành công. gọi ngay tool ${intent_final} `
                     }
                 });
+                set_semantic_vad(vad_type, send_message);
                 return;
             }
             send_message({
@@ -329,6 +379,7 @@ export async function get_so_danh_bo_handler(function_event, asteriskData, send_
                     instructions: `Mã danh bộ ${asteriskData.ma_danh_bo} đã được xác nhận thành công. Dựa vào yêu cầu ban đầu của khách hàng trong hội thoại (ví dụ: hỏi tiền nước/hóa đơn), hãy GỌI NGAY tool tương ứng (ví dụ: 'get_bill') với mã danh bộ này. Tuyệt đối không hỏi lại khách.`
                 }
             });
+            set_semantic_vad(vad_type, send_message);
             return;
         }
 
@@ -337,6 +388,7 @@ export async function get_so_danh_bo_handler(function_event, asteriskData, send_
         if (xac_nhan == "sai") {
             asteriskData.ma_danh_bo_count = (asteriskData.ma_danh_bo_count || 0) + 1;
             if (asteriskData.ma_danh_bo_count >= 3) {
+                set_semantic_vad(vad_type, send_message);
                 return chuyen_tong_dai(function_event, send_message, "Xác nhận sai mã danh bộ quá 3 lần");
             }
 
@@ -344,12 +396,12 @@ export async function get_so_danh_bo_handler(function_event, asteriskData, send_
                 // Khách đọc luôn mã mới 11 số -> đưa vào checking và xin xác nhận mã mới
                 asteriskData.ma_danh_bo_checking = valid_mdb;
                 asteriskData.ma_danh_bo_phase = 3;
-                return sdb_doc_xacnhan(function_event, send_message, valid_mdb);
+                return sdb_doc_xacnhan(function_event, send_message, valid_mdb, vad_type);
             } else {
                 // Khách chỉ báo sai -> reset checking và xin khách đọc lại
                 asteriskData.ma_danh_bo_checking = "";
                 asteriskData.ma_danh_bo_phase = 2;
-                return sdb_doc_mdb_sai(function_event, send_message);
+                return sdb_doc_mdb_sai(function_event, send_message, vad_type);
             }
         }
     }
@@ -360,7 +412,7 @@ export async function get_so_danh_bo_handler(function_event, asteriskData, send_
             // Khách muốn đổi sang mã danh bộ mới khác
             asteriskData.ma_danh_bo_checking = valid_mdb;
             asteriskData.ma_danh_bo_phase = 3;
-            return sdb_doc_xacnhan(function_event, send_message, valid_mdb);
+            return sdb_doc_xacnhan(function_event, send_message, valid_mdb, vad_type);
         } else {
             // Vẫn là mã cũ hoặc đã xác nhận rồi
             const cauThoai = `Dạ, mã danh bộ của Quý khách hiện tại là ${format_danh_bo_voice(asteriskData.ma_danh_bo)}. Quý khách cần em hỗ trợ gì ạ?`;
@@ -383,6 +435,7 @@ export async function get_so_danh_bo_handler(function_event, asteriskData, send_
                     instructions: `Nói CHÍNH XÁC từng từ của câu sau, không thêm bớt: "${cauThoai}"`
                 }
             });
+            set_semantic_vad(vad_type, send_message);
             return;
         }
     }
@@ -392,22 +445,23 @@ export async function get_so_danh_bo_handler(function_event, asteriskData, send_
         // Chưa có số nào trong hội thoại
         if (!cleanMdb && (!ma_danh_bo_length || ma_danh_bo_length === 0)) {
             asteriskData.ma_danh_bo_phase = 1;
-            return sdb_doc_mdb_chua_co(function_event, send_message);
+            return sdb_doc_mdb_chua_co(function_event, send_message, vad_type);
         }
 
         // Khách có đọc số nhưng chưa đủ 11 chữ số
         asteriskData.ma_danh_bo_count = (asteriskData.ma_danh_bo_count || 0) + 1;
         if (asteriskData.ma_danh_bo_count >= 3) {
+            set_semantic_vad(vad_type, send_message);
             return chuyen_tong_dai(function_event, send_message, "Khách đọc không đủ 11 số quá 3 lần");
         }
         asteriskData.ma_danh_bo_phase = 2;
-        return sdb_doc_mdb_chua_du(function_event, send_message);
+        return sdb_doc_mdb_chua_du(function_event, send_message, vad_type);
     }
 
     // TRƯỜNG HỢP 4: Đã bắt được mã 11 số hợp lệ lần đầu -> Đọc lại xin xác nhận (phase 3)
     asteriskData.ma_danh_bo_checking = valid_mdb;
     asteriskData.ma_danh_bo_phase = 3;
-    return sdb_doc_xacnhan(function_event, send_message, valid_mdb);
+    return sdb_doc_xacnhan(function_event, send_message, valid_mdb, vad_type);
 }
 function cancel_old_tool(call_id, send_message) {
     send_message({

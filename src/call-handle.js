@@ -26,7 +26,7 @@ function authHeaders() {
  * @param {string} callId
  * @returns {Promise<object>} - Response body từ OpenAI
  */
-async function acceptCall(callId) {
+async function acceptCall(callId, asteriskData) {
     const now = new Date();
     // Lấy ngày/tháng/năm theo giờ Việt Nam
     const vnTime = new Intl.DateTimeFormat('vi-VN', {
@@ -38,11 +38,12 @@ async function acceptCall(callId) {
     const day = vnTime.find(p => p.type === 'day')?.value;
     const month = vnTime.find(p => p.type === 'month')?.value;
     const year = vnTime.find(p => p.type === 'year')?.value;
-
+    const tel = asteriskData?.phoneNumber;
     let instructions = `
-     # Context & Realtime Date
+    # Context & Realtime Date
     - Thời gian hiện tại: Ngày ${day} tháng ${month} năm ${year}.
     - Tháng hiện tại là tháng ${month} (kỳ ${month}).
+    - Số điện thoại của khách hàng đang gọi lên là: ${tel}
 
     # Role and Objective
     - Tên: Trợ lý Ảo Ây Ai.
@@ -64,19 +65,18 @@ async function acceptCall(callId) {
     ## Preambles
     - Khi cần thời gian tra cứu, nói câu này: "Dạ, Quý khách đợi em một chút ạ.".
     - Khi khách hàng đang đọc dở các cụm số hoặc đọc chậm từng số, tuyệt đối giữ im lặng lắng nghe cho đến khi khách đọc xong toàn bộ dãy số, không nói chen ngang (như Dạ, Vâng, Chờ chút), không gọi tool 'wait_for_user' khi khách chưa đọc xong số.
-
-    # QUY TẮC CỐT LÕI: QUẢN LÝ MÃ DANH BỘ BẰNG TOOL 'get_so_danh_bo'
-    - BẠN TUYỆT ĐỐI KHÔNG ĐƯỢC TỰ HỎI SỐ DANH BỘ BẰNG GIỌNG NÓI (CẤM nói các câu như: "Dạ Quý khách cho em xin mã danh bộ", "Quý khách đọc số danh bộ giúp em"...).
-    - BẠN TUYỆT ĐỐI KHÔNG ĐƯỢC TỰ ĐỌC LẠI SỐ HOẶC TỰ HỎI XÁC NHẬN (CẤM tự đọc số, CẤM tự hỏi "có đúng không ạ").
-    - BẠN TUYỆT ĐỐI KHÔNG ĐƯỢC TỰ NÓI khi khách vừa đọc một dãy số hoặc khi khách trả lời xác nhận "đúng" / "sai".
     
+    ## Mã Danh Bộ
     - HÀNH ĐỘNG BẮT BUỘC: PHẢI GỌI TOOL 'get_so_danh_bo' trong 3 trường hợp sau:
       1. Ngay khi khách yêu cầu bất kỳ dịch vụ nào cần mã danh bộ (tiền nước, hóa đơn, cúp nước, so sánh sản lượng...) mà cuộc gọi chưa có mã danh bộ đã xác nhận.
-      2. Khi khách hàng đọc mã danh bộ hoặc một dãy số bất kỳ.
-      3. Khi khách hàng trả lời xác nhận (đúng rồi, chính xác, sai rồi, không phải...).
-    - TẤT CẢ CÂU THOẠI HỎI SỐ, NHẮC ĐỌC LẠI, VÀ ĐỌC XÁC NHẬN SỐ ĐỀU DO TOOL QUẢN LÝ. BẠN CHỈ ĐƯỢC PHÁT ÂM THEO CHỈ DẪN CHÍNH XÁC TỪ TOOL.
-    - KHI MÃ DANH BỘ ĐÃ ĐƯỢC XÁC NHẬN THÀNH CÔNG: Dựa vào yêu cầu ban đầu của khách hàng trong cuộc gọi (ví dụ khách hỏi tiền nước/hóa đơn), hãy GỌI TIẾP NGAY tool nghiệp vụ tương ứng (ví dụ gọi tool 'get_bill') để lấy thông tin. TUYỆT ĐỐI KHÔNG hỏi lại khách câu hỏi thừa.
+      2. Khi khách hàng đọc mã danh bộ.
+    - Bạn không cần kiểm tra tính hợp lệ của mã danh bộ, phía backend sẽ thực hiện việc này.
     `
+    // # QUY TẮC CỐT LÕI: QUẢN LÝ MÃ DANH BỘ BẰNG TOOL 'get_so_danh_bo'
+    // - BẠN TUYỆT ĐỐI KHÔNG ĐƯỢC TỰ HỎI SỐ DANH BỘ BẰNG GIỌNG NÓI (CẤM nói các câu như: "Dạ Quý khách cho em xin mã danh bộ", "Quý khách đọc số danh bộ giúp em"...).
+    // - BẠN TUYỆT ĐỐI KHÔNG ĐƯỢC TỰ ĐỌC LẠI SỐ HOẶC TỰ HỎI XÁC NHẬN (CẤM tự đọc số, CẤM tự hỏi "có đúng không ạ").
+    // - BẠN TUYỆT ĐỐI KHÔNG ĐƯỢC TỰ NÓI khi khách vừa đọc một dãy số hoặc khi khách trả lời xác nhận "đúng" / "sai".
+
     // - Khi chuẩn bị gọi tool, TUYỆT ĐỐI KHÔNG nói câu đệm hay câu dẫn trước (CẤM nói: "để em ghi nhận nhé", "chờ em một chút", "để em mở thông tin"). Hãy phát ra function call ngay lập tức.
 
     //- Mã danh bộ là 11 chữ số, đọc liên tục, liền mạch, không ngắt quãng.
@@ -208,10 +208,11 @@ export async function hangupCall(callId) {
             // Bắt mọi lỗi mạng để không làm sập tiến trình
             log.error(`[CallMgr] Hangup ${callId} lỗi mạng: ${err.message}`);
         }
-    }, 3000);
+    }, 5000);
 }
 async function get_so_danh_bo(tel, callId = '') {
     let knownDanhBo = [];
+    // return knownDanhBo;
     if (tel && tel !== "Unknown") {
         try {
             const timeoutPromise = new Promise((_, reject) =>
@@ -258,7 +259,7 @@ export async function handleIncomingCall(callId, fromHeader, asteriskData) {
         log.info(`[handleIncomingCall]: Accepting call, callId = ${callId} ` + "\n\r");
         log_sequenceDiagram(`Code-->> OpenAI: Accept Call, callId = ${callId} `, asteriskData.fileName);
         const t0 = Date.now();
-        let acceptParams = await acceptCall(callId);
+        let acceptParams = await acceptCall(callId, asteriskData);
         console.log(`[CallMgr] accept fetch mất ${Date.now() - t0}ms`);
         // Pha 1: Ghi dòng "mầm" ngay khi mở cuộc gọi
         insertCallStub({
@@ -273,12 +274,8 @@ export async function handleIncomingCall(callId, fromHeader, asteriskData) {
         let knowDanhbo = await get_so_danh_bo(asteriskData.phoneNumber, callId);
         if (knowDanhbo?.length > 0) {
             asteriskData.ma_danh_bo_list = knowDanhbo;
-            // kq.ma_danh_bo_count = knowDanhbo.length;
-            // kq.ma_danh_bo_checking = knowDanhbo[0];
-            // kq.ma_danh_bo_phase = 2;
+            asteriskData.hasReadSoDanhBo = true;
         }
-        // log.info(`[handleIncomingCall]: asteriskData = ` + "\n\r");
-        // console.log('handleIncomingCall: asteriskData= ', asteriskData);
         asteriskData.acceptParams = acceptParams;
         await handle_WebSocket_to_OpenAI(callId, asteriskData);
     } catch (err) {

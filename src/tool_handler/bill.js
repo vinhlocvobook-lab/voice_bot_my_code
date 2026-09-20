@@ -6,7 +6,7 @@ import { check_avaliable_agents } from "./tool_call.js";
 
 
 
-async function get_trang_thai_thanh_toan(function_event, asteriskData, send_message) {
+export async function get_trang_thai_thanh_toan(function_event, asteriskData, send_message) {
     const { call_id, arguments: function_arg } = function_event;
     const args = JSON.parse(function_arg || "{}");
     let { ky, nam } = args;
@@ -19,16 +19,35 @@ async function get_trang_thai_thanh_toan(function_event, asteriskData, send_mess
 
     // Nếu kỳ/năm trống, mặc định là tháng/năm hiện tại
     const now = new Date();
+    const curMonth = now.getMonth() + 1;
+    const curYear = now.getFullYear();
     if (!ky || ky == "" || ky == "undefined") {
-        ky = now.getMonth() + 1;
+        ky = curMonth;
     }
     if (!nam || nam == "" || nam == "undefined") {
-        nam = now.getFullYear();
+        nam = curYear;
     }
 
     console.log("[tools][get_trang_thai_thanh_toan] arguments: ", { ma_danh_bo: asteriskData.ma_danh_bo, ky, nam });
-    const kq = await getTrangThaiTT(asteriskData.ma_danh_bo, ky, nam);
+    let kq = await getTrangThaiTT(asteriskData.ma_danh_bo, ky, nam);
     console.log("[tools][get_trang_thai_thanh_toan] kq: ", kq);
+    // let loithoai1 = "";
+    if (kq && !kq.success) {
+        const errorCode = kq?.error_code || "NOT_FOUND";
+        if (errorCode === "PRODUCTION_NOT_FOUND") {
+            if (ky == curMonth && nam == curYear) {
+                // loithoai1 = `Dạ, hiện tại hệ thống chưa có dữ liệu sản lượng và tiền nước của kỳ ${ky} năm ${nam} cho số danh bộ ${format_danh_bo_voice(asteriskData.ma_danh_bo)} ạ.`;
+                if (ky == 1) {
+                    ky = 12;
+                    nam--;
+                } else {
+                    ky--;
+                }
+                kq = await getTrangThaiTT(asteriskData.ma_danh_bo, ky, nam);
+                console.log("[tools][get_trang_thai_thanh_toan] kq: ", kq);
+            }
+        }
+    }
     // 1. TRƯỜNG HỢP THÀNH CÔNG CÓ DỮ LIỆU
     if (kq && kq.success && Array.isArray(kq.data) && kq.data.length > 0) {
         // Chuẩn hóa và chuyển các trường số thành chữ

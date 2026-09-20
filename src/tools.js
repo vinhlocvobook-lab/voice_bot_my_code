@@ -20,7 +20,7 @@ const TOOL_HANDLERS = {
     create_ticket: create_ticket_handler,
     end_call: end_call_handler,
     compare_usage: compare_usage_handler,
-    get_procedure_info_for_family: get_procedure_info_for_family_handler,
+    procedure_info_for_family: get_procedure_info_for_family_handler,
     get_procedure_info_for_organization: get_procedure_info_for_organization_handler,
     check_missing_docs: check_missing_docs_handler,
 };

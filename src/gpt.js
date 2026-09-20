@@ -51,6 +51,7 @@ const VERDICT_SCHEMA = {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function get_so_danh_bo(asteriskData) {
+
     const ctrl = asteriskData.gptController;
 
     for (let i = 0; i < 5; i++) {
@@ -140,6 +141,121 @@ Trả về DUY NHẤT JSON:
         if (reason === "old_tool") {
             throw new Error(`old_tool`)
         }
+        return null;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+const TICKET_SCHEMA = {
+    type: "json_schema",
+    json_schema: {
+        name: "ticket_verdict",
+        strict: true,
+        schema: {
+            type: "object",
+            properties: {
+                can_tao_phieu: {
+                    type: "boolean",
+                    description: "true nếu khách hàng thực sự có yêu cầu tạo phiếu (sự cố/phản ánh/khiếu nại/lời nhắn) cần xử lý trong cuộc gọi này, false nếu không có yêu cầu như vậy.",
+                },
+                loai: {
+                    type: ["string", "null"],
+                    enum: ["su_co", "khieu_nai", "loi_nhan", "khac", null],
+                    description: "Loại yêu cầu.",
+                },
+                noi_dung_chi_tiet: {
+                    type: ["string", "null"],
+                    description: "Mô tả ĐẦY ĐỦ nội dung phản ánh/sự cố/lời nhắn, gộp toàn bộ chi tiết khách đã cung cấp trong suốt cuộc gọi (địa chỉ, số điện thoại liên hệ, giờ liên hệ mong muốn, mô tả sự cố...). Chỉ dùng thông tin khách thực sự nói trong hội thoại, không suy diễn thêm.",
+                },
+                ten: {
+                    type: ["string", "null"],
+                    description: "Tên khách hàng nếu có nhắc tới trong hội thoại.",
+                },
+                ma_danh_bo: {
+                    type: ["string", "null"],
+                    description: "Mã danh bộ 11 chữ số nếu đã được xác nhận trong cuộc gọi.",
+                },
+                ten_nguoi_lien_he: {
+                    type: "string",
+                    description:
+                        "Tên người đang liên hệ hoặc người khách yêu cầu liên hệ lại, nếu được nói rõ.",
+                },
+                dia_chi: {
+                    type: "string",
+                    description:
+                        "Địa chỉ hoặc khu vực xảy ra sự cố/phản ánh, nếu khách cung cấp.",
+                },
+                so_dien_thoai_lien_he: {
+                    type: "string",
+                    description:
+                        "Số điện thoại khách muốn được liên hệ lại, nếu khách cung cấp rõ.",
+                },
+                khung_gio_lien_he: {
+                    type: "string",
+                    description:
+                        "Khung giờ hoặc thời điểm khách muốn được liên hệ lại, nếu có.",
+                },
+            },
+            required: ["can_tao_phieu", "loai", "noi_dung_chi_tiet", "ten", "ma_danh_bo", "ten_nguoi_lien_he", "dia_chi", "so_dien_thoai_lien_he", "khung_gio_lien_he"],
+            additionalProperties: false,
+        },
+    },
+};
+
+export async function synthesizeTicket(asteriskData) {
+    console.log("[synthesizeTicket]:bắt đầu");
+    const notes = asteriskData.pendingTicketNotes || [];
+    // if (notes.length === 0) return null;
+
+    const conversation = asteriskData.conversation || "";
+    const notesText = notes
+        .map((n, i) => `Ghi chú ${i + 1}: loai=${n.loai || "?"}, ten=${n.ten || "?"}, so_dien_thoai_lien_he=${n.so_dien_thoai_lien_he || "?"}, dia_chi=${n.dia_chi || "?"}, so_dien_thoai_lien_he=${n.so_dien_thoai_lien_he || "?"}, khung_gio_lien_he=${n.khung_gio_lien_he || "?"}, noi_dung_chi_tiet=${n.noi_dung_chi_tiet || "?"},`)
+        .join("\n");
+
+    const prompt = `Dựa vào toàn bộ hội thoại cuộc gọi CSKH sau đây và các ghi chú tool đã ghi nhận trong lúc gọi, hãy tổng hợp lại đầy đủ và chính xác nội dung để tạo 1 phiếu tiếp nhận (ticket) DUY NHẤT.
+
+Hội thoại:
+${conversation}
+
+Ghi chú tool trong lúc gọi:
+${notesText}
+
+Chỉ dùng thông tin khách hàng thực sự đã nói trong hội thoại và ghi chú tool ở trên, KHÔNG bịa thêm chi tiết nào khác. Nếu khách cung cấp thêm địa chỉ/SĐT liên hệ/giờ liên hệ ở các lượt nói sau, PHẢI gộp đầy đủ vào noi_dung_chi_tiet. Hãy trả về DUY NHẤT JSON theo schema.`;
+
+    console.log("=================SynthesizeTicket=================");
+    console.log("[synthesizeTicket]:prompt = ", prompt);
+    console.log("===================================================");
+
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort("timeout"), ARBITER_TIMEOUT_MS);
+    try {
+        const res = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            signal: ctrl.signal,
+            headers: {
+                Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                model: ARBITER_MODEL,
+                messages: [{ role: "user", content: prompt }],
+                response_format: TICKET_SCHEMA,
+                reasoning_effort: ARBITER_REASONING_EFFORT,
+            }),
+        });
+
+        if (!res.ok) {
+            const err = await res.text();
+            log.warn(`[TicketSynth] API lỗi ${res.status}: ${err.slice(0, 300)}`);
+            return null;
+        }
+
+        const data = await res.json();
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) return null;
+        return JSON.parse(content);
+    } catch (err) {
+        log.warn(`[TicketSynth] Lỗi: ${err.name === "AbortError" ? `timeout ${ARBITER_TIMEOUT_MS}ms` : err.message}`);
         return null;
     } finally {
         clearTimeout(timer);
