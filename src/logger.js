@@ -4,6 +4,7 @@
 
 import path from "path";
 import fs from "fs";
+import util from "util";
 const LEVELS = { debug: 0, info: 1, warn: 2, error: 3 };
 const currentLevel = LEVELS[process.env.LOG_LEVEL || "info"] ?? 1;
 
@@ -18,12 +19,60 @@ function format(level, args) {
   return [`[${ts}] [${level.toUpperCase()}]`, ...args];
 }
 
+/**
+ * Hàm log vừa in ra console vừa lưu vào file theo ngày: logs/YYYY/MM/DD/<fileName>
+ * Chạy đồng nhất trên cả máy local và server.
+ * 
+ * @param {string} fileName - Tên file (ví dụ: "14_30_15_abc123.txt" hoặc asteriskData.fileName)
+ * @param {...any} args - Nội dung cần log (chuỗi, object, error,...)
+ */
+export function log_with_file(fileName, ...args) {
+  if (!fileName) {
+    console.warn("[Logger] fileName is required for log_with_file!");
+    return;
+  }
+  const nowDate = new Date(Date.now() + TZ_OFFSET_MS);
+  const year = nowDate.getUTCFullYear();
+  const month = String(nowDate.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(nowDate.getUTCDate()).padStart(2, "0");
+  // Đảm bảo file có đuôi .txt nếu chưa có extension
+  let safeFileName = fileName;
+  if (!path.extname(safeFileName)) {
+    safeFileName += ".txt";
+  }
+  // 1. Tạo thư mục logs/YYYY/MM/DD/ (tự động tạo trên local hoặc server)
+  const logFolder = path.join(process.cwd(), "logs", "debug", String(year), month, day);
+  if (!fs.existsSync(logFolder)) {
+    fs.mkdirSync(logFolder, { recursive: true });
+  }
+  const filePath = path.join(logFolder, safeFileName);
+  // 2. Format thời gian timestamp GMT+7
+  const timeStr = _nowGmt7();
+  // 3. In ra màn hình console
+  console.log(`[${timeStr}] [FILE: ${safeFileName}]`, ...args);
+  // 4. Lưu vào file log (dùng util.format để object không bị biến thành [object Object])
+  try {
+    const formattedContent = util.format(...args);
+    const logLine = `[${timeStr}] ${formattedContent}\n`;
+    fs.appendFileSync(filePath, logLine, "utf8");
+  } catch (err) {
+    console.error("[Logger] Lỗi khi ghi file log:", err.message);
+  }
+}
+
 export const log = {
   debug: (...a) => currentLevel <= 0 && console.debug(...format("debug", a)),
   info: (...a) => currentLevel <= 1 && console.info(...format("info", a)),
   warn: (...a) => currentLevel <= 2 && console.warn(...format("warn", a)),
   error: (...a) => currentLevel <= 3 && console.error(...format("error", a)),
+  dir: (...a) => {
+    if (currentLevel <= 1) { // hoặc currentLevel <= 0 nếu chỉ muốn bật khi debug
+      console.info(...format("dir", []));
+      a.forEach((item) => console.dir(item, { depth: null, colors: true }));
+    }
+  },
 };
+
 export function log_to_file(content, from) {
   const now = new Date();
 

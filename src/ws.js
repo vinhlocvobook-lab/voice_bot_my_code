@@ -3,7 +3,7 @@ import path from "path";
 import WebSocket from "ws";
 import { audio_prompt } from "./prompt.js";
 import { tool_function_handler } from "./tools.js";
-import { log, log_sequenceDiagram, log_conversation } from "./logger.js";
+import { log, log_with_file, log_sequenceDiagram, log_conversation } from "./logger.js";
 import { finalizeCallLog } from "./integrations/calllog-api.js";
 import { synthesizeTicket } from "./gpt.js";
 import { baoSuCo } from "./integrations/tongdai-api.js";

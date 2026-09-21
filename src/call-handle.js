@@ -71,6 +71,9 @@ async function acceptCall(callId, asteriskData) {
       1. Ngay khi khách yêu cầu bất kỳ dịch vụ nào cần mã danh bộ (tiền nước, hóa đơn, cúp nước, so sánh sản lượng...) mà cuộc gọi chưa có mã danh bộ đã xác nhận.
       2. Khi khách hàng đọc mã danh bộ.
     - Bạn không cần kiểm tra tính hợp lệ của mã danh bộ, phía backend sẽ thực hiện việc này.
+    
+    ## Quy tắc về thủ tục
+    - xác định thủ tục dành cho gia đình hoặc doanh nghiệp trước khi gọi tool về thủ tục
     `
     // # QUY TẮC CỐT LÕI: QUẢN LÝ MÃ DANH BỘ BẰNG TOOL 'get_so_danh_bo'
     // - BẠN TUYỆT ĐỐI KHÔNG ĐƯỢC TỰ HỎI SỐ DANH BỘ BẰNG GIỌNG NÓI (CẤM nói các câu như: "Dạ Quý khách cho em xin mã danh bộ", "Quý khách đọc số danh bộ giúp em"...).
@@ -212,7 +215,7 @@ export async function hangupCall(callId) {
 }
 async function get_so_danh_bo(tel, callId = '') {
     let knownDanhBo = [];
-    // return knownDanhBo;
+    return knownDanhBo;
     if (tel && tel !== "Unknown") {
         try {
             const timeoutPromise = new Promise((_, reject) =>

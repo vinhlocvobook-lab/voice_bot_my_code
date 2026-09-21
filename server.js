@@ -3,7 +3,7 @@ import express from "express";
 import WebSocket from "ws";
 import { verifyWebhookSignature } from "./src/webhook-verify.js";
 import { handleIncomingCall } from "./src/call-handle.js";
-import { log, log_sequenceDiagram } from "./src/logger.js";
+import { log, log_with_file, log_sequenceDiagram } from "./src/logger.js";
 // import { getThongTinKhachHang, getAvailableAgents } from "./src/integrations/tongdai-api.js";
 // import { closeDb, getDanhBoHistory } from "./src/integrations/calllog-api.js";
 
@@ -104,7 +104,7 @@ async function extractAsteriskHeaders(payload, callId = "") {
         //     // kq.ma_danh_bo_checking = knowDanhbo[0];
         //     // kq.ma_danh_bo_phase = 2;
         // }
-
+        log_with_file(fileName, kq);
         log_sequenceDiagram("sequenceDiagram", fileName);
         log_sequenceDiagram("autonumber", fileName);
         log_sequenceDiagram("participant OpenAI", fileName);
