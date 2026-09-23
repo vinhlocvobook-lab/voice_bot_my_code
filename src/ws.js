@@ -3,7 +3,7 @@ import path from "path";
 import WebSocket from "ws";
 import { audio_prompt } from "./prompt.js";
 import { tool_function_handler } from "./tools.js";
-import { log, log_with_file, log_sequenceDiagram, log_conversation } from "./logger.js";
+import { log_with_file, log_sequenceDiagram, log_conversation } from "./logger.js";
 import { finalizeCallLog } from "./integrations/calllog-api.js";
 import { synthesizeTicket } from "./gpt.js";
 import { baoSuCo } from "./integrations/tongdai-api.js";
@@ -11,13 +11,14 @@ import { insertTicket } from "./integrations/calllog-api.js";
 const OPENAI_WS_URL = "wss://api.openai.com/v1/realtime";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function send_message(ws, message, callId = "") {
+function send_message(ws, message, callId = "", fileName = "") {
+    const targetFile = fileName || (callId ? `${callId}.txt` : "ws.txt");
     if (ws.readyState === WebSocket.OPEN) {
         // log_sequenceDiagram(`Note over Code,OpenAI:${JSON.stringify(message)} `,);
         ws.send(JSON.stringify(message));
-        log.info(`[WS][${callId}] Message sent: ${JSON.stringify(message)}`);
+        log_with_file(targetFile, `[WS][${callId}] Message sent: ${JSON.stringify(message)}`);
     } else {
-        log.warn(`[WS][${callId}] Khong the gui message vi WebSocket chua OPEN (state=${ws.readyState})`);
+        log_with_file(targetFile, `[WS][${callId}] Khong the gui message vi WebSocket chua OPEN (state=${ws.readyState})`);
     }
 }
 
@@ -53,11 +54,14 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
     asteriskData.conversation = "";
     asteriskData.input_transcript_is_completed = false;
     asteriskData.vad_type = "semantic_vad";
-    asteriskData.hasReadSoDanhBo = false;
+    if (asteriskData.hasReadSoDanhBo === undefined) {
+        asteriskData.hasReadSoDanhBo = false;
+    }
 
     function cancelActiveResponse(reason = "unknown") {
         if (activeResponseStatus !== "in_progress") {
-            log.info(
+            log_with_file(
+                asteriskData.fileName,
                 `[WS][${callId}] Skip response.cancel: ` +
                 `status=${activeResponseStatus}, responseId=${activeResponseId}, reason=${reason}`
             );
@@ -66,9 +70,10 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
 
         activeResponseStatus = "cancelling";
 
-        send_message(ws, { type: "response.cancel" }, callId);
+        send_message(ws, { type: "response.cancel" }, callId, asteriskData.fileName);
 
-        log.info(
+        log_with_file(
+            asteriskData.fileName,
             `[WS][${callId}] response.cancel sent: ` +
             `responseId=${activeResponseId}, reason=${reason}`
         );
@@ -91,7 +96,7 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
     function triggerGreeting() {
         if (hasGreetingStarted || userHasSpoken) return;
 
-        log.info(`[WS][${callId}] Triggering initial greeting...`);
+        log_with_file(asteriskData.fileName, `[WS][${callId}] Triggering initial greeting...`);
         // const greetingInstruction = 'Nói CHÍNH XÁC từng từ của câu chào sau đây, không thêm bớt, không diễn giải lại: " Alo! Alo! Xin chào Quý Khách, Cảm ơn Quý Khách đã gọi đến Tổng đài Công ty Cổ phần Cấp nước Trung An. Em là Trợ lý Ảo Ây Ai, Quý khách cần em hỗ trợ gì ạ? Nếu Quý Khách muốn gặp trực tiếp tổng đài viên thì nói em chuyển máy cho tổng đài viên nhé!"';
         const greetingInstruction = 'Nói CHÍNH XÁC từng từ của câu chào sau đây, không thêm bớt, không diễn giải lại: " Alo! Alo! Xin chào Quý Khách, Cảm ơn Quý Khách đã gọi đến Tổng đài Công ty Cổ phần Cấp nước Trung An. Em là Trợ lý Ảo Ây Ai, Quý khách cần em hỗ trợ gì ạ?"';
         log_sequenceDiagram(`Code-->>OpenAI: Triggering initial greeting... response.create`, asteriskData.fileName);
@@ -100,12 +105,12 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
         send_message(ws, {
             type: "response.create",
             response: { instructions: greetingInstruction },
-        }, callId);
+        }, callId, asteriskData.fileName);
     }
     /**
      * Kiểm tra xem transcript có phải là echo từ audio_prompt hay không
      */
-    function isPromptEcho(transcript, audioPrompt) {
+    function isPromptEcho_old1(transcript, audioPrompt) {
         if (!transcript || !audioPrompt) return false;
 
         // Chuẩn hóa: bỏ dấu chấm câu, chuyển chữ thường, bỏ khoảng trắng thừa
@@ -137,6 +142,60 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
         const ratio = matchCount / wordsT.length;
         return ratio >= 0.7 && wordsT.length >= 4;
     }
+    function isPromptEcho(transcript, audioPrompt) {
+        if (!transcript || !audioPrompt) return false;
+
+        const clean = (str) =>
+            str.toLowerCase()
+                .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "")
+                .replace(/\s+/g, " ")
+                .trim();
+
+        const t = clean(transcript);
+        const p = clean(audioPrompt);
+
+        // 1. Khớp hoàn toàn
+        if (t === p) {
+            return true;
+        }
+
+        // 2. Transcript là một đoạn con dài của Prompt
+        if (t.length >= 20 && p.includes(t)) {
+            return true;
+        }
+
+        const wordsT = t.split(" ");
+        const wordsP = p.split(" ");
+
+        // 3. Tìm chuỗi từ liên tục dài nhất
+        let longestMatch = 0;
+
+        for (let i = 0; i < wordsT.length; i++) {
+            for (let j = 0; j < wordsP.length; j++) {
+
+                let k = 0;
+
+                while (
+                    i + k < wordsT.length &&
+                    j + k < wordsP.length &&
+                    wordsT[i + k] === wordsP[j + k]
+                ) {
+                    k++;
+                }
+
+                longestMatch = Math.max(longestMatch, k);
+            }
+        }
+
+        const contiguousRatio =
+            longestMatch / wordsT.length;
+
+        // Có ít nhất 5 từ liên tục và chiếm >= 70% transcript
+        return (
+            longestMatch >= 5 &&
+            contiguousRatio >= 0.7
+        );
+    }
     /**
      * Kiểm tra tốc độ nói (số từ / giây) có vượt ngưỡng con người có thể nói được không.
      * Dùng để phát hiện transcript KHÔNG PHẢI do khách nói (ảo giác của ASR khi nghe
@@ -145,16 +204,19 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
     function isAbnormalSpeechRate(transcript, durationMs) {
         if (!transcript || !durationMs || durationMs <= 0) return false; // thiếu dữ liệu -> không kết luận
         const words = transcript.trim().split(/\s+/).filter(Boolean);
+        if (words.length >= 5 && durationMs < 900) {
+            return true; // Coi là bất thường
+        }
         if (words.length < 6) return false;      // câu quá ngắn, tỷ lệ không đáng tin
         const seconds = durationMs / 1000;
         if (seconds < 0.3) return false;         // thời lượng quá ngắn, dữ liệu không ổn định
         const wordsPerSecond = words.length / seconds;
         // Người Việt nói tự nhiên, kể cả rất nhanh, hiếm khi vượt 5-6 từ/giây liên tục.
         // >8 từ/giây gần như chắc chắn không phải giọng nói thật.
-        return wordsPerSecond > 8;
+        return wordsPerSecond > 6;
     }
     const url = `${OPENAI_WS_URL}?call_id=${callId}`;
-    console.log("[handle_WebSocket_to_OpenAI]: connecting to Websocket URL =", url, callId);
+    log_with_file(asteriskData.fileName, "[handle_WebSocket_to_OpenAI]: connecting to Websocket URL =", url, callId);
     log_sequenceDiagram(`Code-->>OpenAI: connect to Websocket`, asteriskData.fileName);
     log_sequenceDiagram(`Note over Code,OpenAI: ${url}`, asteriskData.fileName);
     const ws = new WebSocket(url, {
@@ -170,28 +232,28 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
         res.on("end", () => {
             log_sequenceDiagram(`OpenAI->>Code: unexpected-response HTTP`, asteriskData.fileName);
             log_sequenceDiagram(`Note over Code,OpenAI: ${res.statusCode}: ${body}`, asteriskData.fileName);
-            log.error(`[WS][${callId}] unexpected-response HTTP ${res.statusCode}: ${body}`);
+            log_with_file(asteriskData.fileName, `[WS][${callId}] unexpected-response HTTP ${res.statusCode}: ${body}`);
         });
     });
     ws.on("close", async (code, reason) => {
         log_sequenceDiagram(`OpenAI->>Code: close`, asteriskData.fileName);
         log_sequenceDiagram(`Note over Code,OpenAI: ${code} ${reason?.toString()}`, asteriskData.fileName);
-        log.info(`[WS][${callId}]WebSocket đóng: ${code} ${reason?.toString()}`);
-        log.info('========================= close========================');
-        log.info(asteriskData.fileName);
-        log.info("asteriskData.count_call_Function=", asteriskData.count_call_Function);
-        // console.dir(asteriskData.functioncall, { depth: null });
+        log_with_file(asteriskData.fileName, `[WS][${callId}]WebSocket đóng: ${code} ${reason?.toString()}`);
+        log_with_file(asteriskData.fileName, '========================= close========================');
+        log_with_file(asteriskData.fileName, asteriskData.fileName);
+        log_with_file(asteriskData.fileName, "asteriskData.count_call_Function=", asteriskData.count_call_Function);
+        console.dir(asteriskData.functioncall, { depth: null });
         if (asteriskData?.pendingTicketNotes?.length > 0) {
-            console.log(".....................pendingTicketNotes.....................");
+            log_with_file(asteriskData.fileName, ".....................pendingTicketNotes.....................");
             // console.dir(asteriskData.pendingTicketNotes, { depth: null });
 
         }
         const kq_gpt = await synthesizeTicket(asteriskData);
         if (!kq_gpt) {
-            log.error(`[WS][${callId}] synthesizeTicket failed`);
+            log_with_file(asteriskData.fileName, `[WS][${callId}] synthesizeTicket failed`);
         } else {
-            log.info(`[WS][${callId}] synthesizeTicket success`);
-            console.dir(kq_gpt, { depth: null });
+            log_with_file(asteriskData.fileName, `[WS][${callId}] synthesizeTicket success`);
+            log_with_file(asteriskData.fileName, kq_gpt);
             const { can_tao_phieu, loai, ma_danh_bo, ten_nguoi_lien_he, dia_chi, so_dien_thoai_lien_he, khung_gio_lien_he, noi_dung_chi_tiet } = kq_gpt;
             asteriskData.ticket = {
                 loai,
@@ -207,7 +269,7 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                 // await handle_request_create_ticket(asteriskData);
                 const noiDung = JSON.stringify(asteriskData.ticket, null, 2);
                 const r = await baoSuCo(ma_danh_bo, noiDung, asteriskData.phoneNumber_real || asteriskData.phoneNumber);
-                console.log("[handleCreateTicket]:kq_baoSuCo=", r);
+                log_with_file(asteriskData.fileName, "[handleCreateTicket]:kq_baoSuCo=", r);
                 // Ghi vào bảng ticket qua API
                 insertTicket({
                     callId: callId,
@@ -217,7 +279,7 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                 });
             }
         }
-        log.info('========================= close========================');
+        log_with_file(asteriskData.fileName, '========================= close========================');
         if (greetingTimeout) clearTimeout(greetingTimeout);
 
         // ✅ LƯU CALL SUMMARY VÀO DATABASE
@@ -295,11 +357,11 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
     ws.on("error", (err) => {
         log_sequenceDiagram(`OpenAI->>Code: error`, asteriskData.fileName);
         log_sequenceDiagram(`Note over Code,OpenAI: ${err.message}`, asteriskData.fileName);
-        log.error(`[WS][${callId}] WebSocket lỗi: ${err.message} `);
+        log_with_file(asteriskData.fileName, `[WS][${callId}] WebSocket lỗi: ${err.message} `);
     });
     ws.on("open", async () => {
         log_sequenceDiagram(`OpenAI->>Code: open`, asteriskData.fileName);
-        console.log(`[WebSocket][${callId}]: Socket opened`);
+        log_with_file(asteriskData.fileName, `[WebSocket][${callId}]: Socket opened`);
         let session_update_message = {
             type: "session.update",
             session: {
@@ -318,12 +380,12 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
         }
         log_sequenceDiagram(`Code-->>OpenAI: session.update`, asteriskData.fileName);
         log_sequenceDiagram(`Note over Code,OpenAI: ${JSON.stringify(session_update_message)}`, asteriskData.fileName);
-        send_message(ws, session_update_message, callId);
+        send_message(ws, session_update_message, callId, asteriskData.fileName);
         // 2. Bắn câu chào NGAY LẬP TỨC (không chờ sleep 1s)
         triggerGreeting();
         greetingTimeout = setTimeout(() => {
             if (!hasGreetingStarted && !userHasSpoken) {
-                log.warn(`[WS][${callId}] Sau 3.5s chưa thấy AI bắt đầu nói, thử trigger greeting lại...`);
+                log_with_file(asteriskData.fileName, `[WS][${callId}] Sau 3.5s chưa thấy AI bắt đầu nói, thử trigger greeting lại...`);
                 triggerGreeting();
             }
         }, 3500);
@@ -340,10 +402,10 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
 
         switch (event.type) {
             case 'conversation.item.created':
-                console.log("\n\r");
-                log.info("[conversation.item.created]: ");
+                log_with_file(asteriskData.fileName, "\n\r");
+                log_with_file(asteriskData.fileName, "[conversation.item.created]: ");
                 // console.dir(event, { depth: null, colors: true });
-                console.log("ITEM CREATED:", event.type, event.item?.id)
+                log_with_file(asteriskData.fileName, "ITEM CREATED:", event.type, event.item?.id)
                 // Lưu lại item_id của lượt user nói gần nhất
                 // if (event.item?.role === 'user') {
                 //     audioTurnTracking.lastItemId = event.item.id;
@@ -354,8 +416,8 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                 // }
                 break;
             case "conversation.item.added": {
-                console.log("\n\r");
-                log.info("[conversation.item.added]: ", "ITEM CREATED:", event.type, event.item?.id);
+                log_with_file(asteriskData.fileName, "\n\r");
+                log_with_file(asteriskData.fileName, "[conversation.item.added]: ", "ITEM CREATED:", event.type, event.item?.id);
                 // console.dir(event, { depth: null, colors: true });
 
                 if (event.item?.role === 'user') {
@@ -368,20 +430,20 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                 break;
             }
             case "response.output_item.added": {
-                console.log("\n\r");
-                log.info("[response.output_item.added]: ");
+                log_with_file(asteriskData.fileName, "\n\r");
+                log_with_file(asteriskData.fileName, "[response.output_item.added]: ");
                 // console.dir(event, { depth: null, colors: true });
                 break;
             }
             case "response.output_item.done": {
-                console.log("\n\r");
-                log.info("[response.output_item.done]: ");
+                log_with_file(asteriskData.fileName, "\n\r");
+                log_with_file(asteriskData.fileName, "[response.output_item.done]: ");
                 // console.dir(event, { depth: null, colors: true });
                 break;
             }
             case "response.created":
                 log_sequenceDiagram(`OpenAI->>Code: response.created`, asteriskData.fileName);
-                log.info(" ....response.created....: AI bắt đầu sinh phản hồi, do VAD kích hoạt hoặc do code yêu cầu");
+                log_with_file(asteriskData.fileName, " ....response.created....: AI bắt đầu sinh phản hồi, do VAD kích hoạt hoặc do code yêu cầu");
                 // console.dir(event, { depth: null, colors: true });
 
                 activeResponseId = event.response?.id ?? event.response_id ?? null;
@@ -400,16 +462,17 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                     activeResponseStatus = status;
                 }
 
-                log.info(
+                log_with_file(
+                    asteriskData.fileName,
                     `[WS][${callId}] response.done: responseId=${responseId}, status=${status}`
                 );
 
                 log_sequenceDiagram(`OpenAI->>Code: response.done`, asteriskData.fileName);
                 log_sequenceDiagram(`Note over Code,OpenAI: ${JSON.stringify({ status: event?.response?.status })}`, asteriskData.fileName);
-                log.info("....response.done....: AI đã nói xong trọn vẹn câu thoại hoặc bị ngắt/hủy");
+                log_with_file(asteriskData.fileName, "....response.done....: AI đã nói xong trọn vẹn câu thoại hoặc bị ngắt/hủy");
                 // console.dir(event, { depth: null, colors: true });
 
-                console.log("...response.done....:event.response.status = ", { status: event?.response?.status });
+                log_with_file(asteriskData.fileName, "...response.done....:event.response.status = ", { status: event?.response?.status });
                 //completed : mô hình sinh xong văn bản, không bị gián đoạn
                 //cancelled : Khách ngắt nói hoặc code gởi lệnh huỷ
                 //incomplete : bị giới hạn token, bị kiểm duyệt, audio stream bị lỗi
@@ -434,7 +497,7 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
 
                 const output = event?.response?.output;
                 if (!Array.isArray(output) || output.length === 0) {
-                    log.warn(`[WS][${callId}] response.done KHÔNG có output nào (bot không nói gì, không gọi tool) `);
+                    log_with_file(asteriskData.fileName, `[WS][${callId}] response.done KHÔNG có output nào (bot không nói gì, không gọi tool) `);
                     break;
                 }
 
@@ -458,9 +521,9 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                 let { name, event_id, response_id, item_id, output_index, call_id, arguments: function_arg } = event;
                 log_sequenceDiagram(`OpenAI->>Code: Tool được gọi : ${name} `, asteriskData.fileName);
                 log_sequenceDiagram(`Note over Code,OpenAI: ${JSON.stringify({ name, event_id, response_id, item_id, output_index, call_id, function_arg })}`, asteriskData.fileName);
-                log.info(`[WS][${callId}][Tool được gọi]: ${name} `, { name, event_id, response_id, item_id, output_index, call_id, function_arg });
+                log_with_file(asteriskData.fileName, `[WS][${callId}][Tool được gọi]: ${name} `, { name, event_id, response_id, item_id, output_index, call_id, function_arg });
                 asteriskData.functioncall.push(event);
-                tool_function_handler(event, asteriskData, (message) => send_message(ws, message, callId));
+                tool_function_handler(event, asteriskData, (message) => send_message(ws, message, callId, asteriskData.fileName));
                 // return {
                 //     kind: "tool-call-requested",
                 //     responseId: rawEvent.response_id ?? null,
@@ -472,9 +535,9 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                 // };
                 break;
             case "input_audio_buffer.dtmf_event_received": {
-                log.info("....input_audio_buffer.dtmf_event_received....");
+                log_with_file(asteriskData.fileName, "....input_audio_buffer.dtmf_event_received....");
                 const digit = String(event.event ?? "").trim();
-                log.info("DTMF received:", digit);
+                log_with_file(asteriskData.fileName, "DTMF received:", digit);
                 log_sequenceDiagram(`OpenAI->>Code: input_audio_buffer.dtmf_event_received ${JSON.stringify({ digit })}`, asteriskData.fileName);
                 log_conversation(`KH[NHẤN PHÍM]: ${digit}`, asteriskData.fileName);
                 asteriskData.conversation += `Khách nhấn phím: ${digit}\n`;
@@ -482,11 +545,11 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
             }
             // ── Transcription để log cuộc hội thoại ───────────────────────────────
             case "conversation.item.input_audio_transcription.completed": {
-                console.log("\n\r \n\r");
-                // log.info("....conversation.item.input_audio_transcription.completed....");
+                log_with_file(asteriskData.fileName, "\n\r \n\r");
+                // log_with_file(asteriskData.fileName, "....conversation.item.input_audio_transcription.completed....");
                 log_sequenceDiagram(`OpenAI->>Code: conversation.item.input_audio_transcription.completed`, asteriskData.fileName);
                 log_sequenceDiagram(`Note over Code,OpenAI: ${JSON.stringify({ transcript: event.transcript?.trim() })}`, asteriskData.fileName);
-                log.info("[conversation.item.input_audio_transcription.completed]: input_text_customer.transcript=", event.transcript?.trim());
+                log_with_file(asteriskData.fileName, "[conversation.item.input_audio_transcription.completed]: input_text_customer.transcript=", event.transcript?.trim());
                 // console.dir(event, { depth: null, colors: true });
                 log_conversation(`Khách: ${event.transcript?.trim()}`, asteriskData.fileName);
                 const txt = event.transcript?.trim();
@@ -513,19 +576,21 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
 
                 if (laEchoPrompt || laTocDoBatThuong) {
                     const lyDo = laEchoPrompt ? "prompt_echo_detected" : "abnormal_speech_rate";
-                    log.warn(`[WS][${callId}] ⚠️ PHÁT HIỆN TRANSCRIPT BẤT THƯỜNG (${lyDo}, duration=${durationMs}ms)! Tiến hành hủy response và xóa item rác: "${txt}"`);
+                    log_with_file(asteriskData.fileName, `[WS][${callId}] ⚠️ PHÁT HIỆN TRANSCRIPT BẤT THƯỜNG (${lyDo}, duration=${durationMs}ms)! Tiến hành hủy response và xóa item rác: "${txt}"`);
 
-                    // log.warn(`[WS][${callId}] ⚠️ PHÁT HIỆN ECHO PROMPT! Tiến hành hủy response và xóa item rác: "${txt}"`);
+                    // log_with_file(asteriskData.fileName, `[WS][${callId}] ⚠️ PHÁT HIỆN ECHO PROMPT! Tiến hành hủy response và xóa item rác: "${txt}"`);
 
                     // 1. Hủy ngay lập tức phản hồi AI đang sinh (nếu có)
-                    // send_message(ws, { type: "response.cancel" }, callId);
+                    // send_message(ws, { type: "response.cancel" }, callId, asteriskData.fileName);
+                    ////////////////////////////
                     cancelActiveResponse(lyDo);
+                    ///////////////////////////
                     // 2. Xóa item này khỏi session Realtime để AI không ghi nhớ
                     if (event.item_id) {
                         send_message(ws, {
                             type: "conversation.item.delete",
                             item_id: event.item_id
-                        }, callId);
+                        }, callId, asteriskData.fileName);
                     }
                     // 3. Bỏ qua, KHÔNG cộng vào asteriskData.conversation
                     break;
@@ -538,7 +603,7 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                 break;
             }
             case "conversation.item.done": {
-                log.info("....conversation.item.done....");
+                log_with_file(asteriskData.fileName, "....conversation.item.done....");
                 // console.log("\n\r");
                 // console.dir(event, { depth: null, colors: true });
                 log_sequenceDiagram(`OpenAI->>Code: conversation.item.done`, asteriskData.fileName);
@@ -548,7 +613,7 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                     const aiPart = content.find((c) => c?.type === "output_audio" && c?.transcript);
                     if (aiPart?.transcript?.trim()) {
                         const txt = aiPart.transcript.trim();
-                        log.info(`[WS][${callId}][AI nói]: ${txt}`);
+                        log_with_file(asteriskData.fileName, `[WS][${callId}][AI nói]: ${txt}`);
                         log_conversation(`AI: ${txt}`, asteriskData.fileName);
                         asteriskData.conversation += `AI: ${aiPart.transcript.trim()}\n`;
                         // ✅ 2. LƯU CÂU THOẠI AI VÀO TRANSCRIPT (Tránh ghi trùng lặp)
@@ -566,9 +631,9 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
             }
 
             case "response.audio_transcript.done": {
-                log.info("....response.audio_transcript.done....");
+                log_with_file(asteriskData.fileName, "....response.audio_transcript.done....");
                 const aiText = event.transcript?.trim();
-                log.info(`[WS][${callId}][AI nói]: ${aiText}`);
+                log_with_file(asteriskData.fileName, `[WS][${callId}][AI nói]: ${aiText}`);
                 log_sequenceDiagram(`OpenAI->>Code: response.audio_transcript.done`, asteriskData.fileName);
                 log_sequenceDiagram(`Note over Code,OpenAI: ${JSON.stringify({ transcript: aiText })}`, asteriskData.fileName);
                 break;
@@ -578,11 +643,11 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                 audioTurnTracking.speechStartTime = Date.now();
                 speechTurnQueue.push({ startMs: Date.now(), durationMs: null });
                 asteriskData.input_transcript_is_completed = false;
-                log.info("....input_audio_buffer.speech_started....");
+                log_with_file(asteriskData.fileName, "....input_audio_buffer.speech_started....");
                 log_sequenceDiagram(`OpenAI->>Code: input_audio_buffer.speech_started`, asteriskData.fileName);
                 userHasSpoken = true;
                 if (greetingTimeout) clearTimeout(greetingTimeout);
-                // log.info(`[WS][${callId}] Khách hàng bắt đầu nói.`);
+                // log_with_file(asteriskData.fileName, `[WS][${callId}] Khách hàng bắt đầu nói.`);
                 break;
 
 
@@ -593,23 +658,23 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                     cur.durationMs = Date.now() - cur.startMs;
                 }
                 log_sequenceDiagram(`OpenAI->>Code: input_audio_buffer.speech_stopped`, asteriskData.fileName);
-                log.info("....input_audio_buffer.speech_stopped....");
+                log_with_file(asteriskData.fileName, "....input_audio_buffer.speech_stopped....");
                 break;
 
             case "input_audio_buffer.committed":
                 log_sequenceDiagram(`OpenAI->>Code: input_audio_buffer.committed`, asteriskData.fileName);
-                log.info("....input_audio_buffer.committed....");
+                log_with_file(asteriskData.fileName, "....input_audio_buffer.committed....");
                 break;
 
             case "conversation.item.input_audio_transcription.failed":
                 log_sequenceDiagram(`OpenAI->>Code: conversation.item.input_audio_transcription.failed`, asteriskData.fileName);
-                log.info("....conversation.item.input_audio_transcription.failed....");
+                log_with_file(asteriskData.fileName, "....conversation.item.input_audio_transcription.failed....");
                 break;
             case "error":
                 log_sequenceDiagram(`OpenAI->>Code: error`, asteriskData.fileName);
                 log_sequenceDiagram(`Note over Code,OpenAI: ${JSON.stringify({ error: event.error })}`, asteriskData.fileName);
-                log.info("....error....");
-                log.error(`[WS][${callId}]OpenAI error: `, event.error);
+                log_with_file(asteriskData.fileName, "....error....");
+                log_with_file(asteriskData.fileName, `[WS][${callId}]OpenAI error: `, event.error);
                 // 👉 Ghi nhận lỗi vào sessionLogger để error_count trong DB phản ánh đúng
                 if (asteriskData?.sessionLogger) {
                     asteriskData.sessionLogger.errors.push({
@@ -621,15 +686,15 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                 break;
 
             case "session.created":
-                log.info("....session.created....");
+                log_with_file(asteriskData.fileName, "....session.created....");
                 log_sequenceDiagram(`OpenAI->>Code: session.created`, asteriskData.fileName);
                 log_sequenceDiagram(`Note over Code,OpenAI: ${JSON.stringify({ session: event.session })}`, asteriskData.fileName);
-                log.info(`[WS][${callId}]session.created: ${event.session?.id}`);
+                log_with_file(asteriskData.fileName, `[WS][${callId}]session.created: ${event.session?.id}`);
                 break;
 
             case "session.updated": {
-                console.log("**************************************************");
-                log.info("***************************....session.updated....***");
+                log_with_file(asteriskData.fileName, "**************************************************");
+                log_with_file(asteriskData.fileName, "***************************....session.updated....***");
 
                 // console.dir(event, { depth: null, colors: true });
                 // asteriskData.vad_type = event?.audio?.input?.turn_detection?.type;
@@ -638,14 +703,14 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
                 if (interrupt_response === false) {
                     asteriskData.vad_type += "_no_interrupt";
                 }
-                log.info("asteriskData.vad_type: ", asteriskData.vad_type);
-                console.log("**************************************************");
+                log_with_file(asteriskData.fileName, "asteriskData.vad_type: ", asteriskData.vad_type);
+                log_with_file(asteriskData.fileName, "**************************************************");
                 log_sequenceDiagram(`OpenAI->>Code: session.updated`, asteriskData.fileName);
                 break;
             }
 
             default:
-                // log.info("....default....");
+                // log_with_file(asteriskData.fileName, "....default....");
                 break;
         }
     });

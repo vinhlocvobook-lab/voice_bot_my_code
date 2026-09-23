@@ -201,7 +201,7 @@ function sdb_doc_xacnhan(function_event, send_message, ma_danh_bo, vad_type = ""
 export async function get_so_danh_bo_handler(function_event, asteriskData, send_message, call_from = '') {
     log.info("....get_so_danh_bo_handler....,asteriskData");
     log.info("asteriskData.vad_type: ", asteriskData.vad_type);
-    log.info("asteriskData.hasReadSoDanhBo: ", asteriskData.hasReadSoDanhBo);
+    log.info("***********asteriskData.hasReadSoDanhBo: ", asteriskData.hasReadSoDanhBo);
     const { call_id, name } = function_event;
     const vad_type = asteriskData?.vad_type || "";
     // Parse arguments từ model nếu có
@@ -259,16 +259,25 @@ export async function get_so_danh_bo_handler(function_event, asteriskData, send_
     const { intent: intent_gpt, ma_danh_bo: mdb_gpt, xac_nhan: xac_nhan_gpt, ma_danh_bo_length, do_tin_cay, ly_do } = kq_arbiter || {};
 
     let xac_nhan = "chưa_xác_nhận";
-    if (xac_nhan_gpt === "đúng") {
-        xac_nhan = "đúng";
-    } else if (xac_nhan_gpt === "sai") {
-        xac_nhan = "sai";
-    }
     // Chuẩn hóa kết quả xác nhận và số danh bộ
     const xacNhanNormalized = xac_nhan;//|| (args.xac_nhan === "dung" ? "đúng" : args.xac_nhan === "sai" ? "sai" : null);
     const rawMdb = mdb_gpt || args.ma_danh_bo || "";
     const cleanMdb = String(rawMdb || "").replace(/\D/g, "");
     const valid_mdb = valid_ma_danh_bo(cleanMdb);
+
+
+    if (xac_nhan_gpt === "đúng") {
+        xac_nhan = "đúng";
+        if (valid_mdb != asteriskData.ma_danh_bo_checking) {
+            console.log("do có số danh bộ theo tel hoặc lịch sử gọi nên, bắt đầu giai đoạn xác nhận");
+            asteriskData.ma_danh_bo_checking = valid_mdb;
+            asteriskData.ma_danh_bo_phase = 2;
+            sdb_doc_xacnhan(function_event, send_message, asteriskData.ma_danh_bo_checking, vad_type)
+            return;
+        }
+    } else if (xac_nhan_gpt === "sai") {
+        xac_nhan = "sai";
+    }
 
     // TRƯỜNG HỢP 1: Đang có mã danh bộ chờ xác nhận (phase 3)
     if (asteriskData.ma_danh_bo_checking) {

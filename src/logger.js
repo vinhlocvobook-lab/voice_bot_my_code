@@ -49,7 +49,7 @@ export function log_with_file(fileName, ...args) {
   // 2. Format thời gian timestamp GMT+7
   const timeStr = _nowGmt7();
   // 3. In ra màn hình console
-  console.log(`[${timeStr}] [FILE: ${safeFileName}]`, ...args);
+  console.log(`[${timeStr}]:`, ...args);
   // 4. Lưu vào file log (dùng util.format để object không bị biến thành [object Object])
   try {
     const formattedContent = util.format(...args);

@@ -15,7 +15,12 @@ const VERDICT_SCHEMA = {
                 intent: {
                     type: "string",
                     enum: ["compare_usage", "get_bill", "get_outages", "create_ticket", "khác"],
-                    description: "Mục đích ban đầu của cuộc gọi: 'compare_usage' nếu khách hàng yêu cầu so sánh sản lượng nước, 'get_bill' nếu khách hàng yêu cầu tra cứu tiền nước / hóa đơn / sản lượng, 'get_outages' nếu khách hàng yêu cầu tra cứu tình hình cúp nước, 'create_ticket' nếu khách hàng yêu cầu tạo ticket, 'khác' nếu khách hàng yêu cầu dịch vụ khác.",
+                    description: `Mục đích ban đầu của cuộc gọi: 
+                    - 'compare_usage' nếu khách hàng yêu cầu so sánh sản lượng / tiền nước nước hoặc khách cần giải thích hay phản ánh về việc sản lượng/tiền nước bị tăng/giảm đột ngột hoặc có sự thay đổi bất thường, 
+                    - 'get_bill' nếu khách hàng yêu cầu tra cứu tiền nước / hóa đơn / sản lượng,
+                    - 'get_outages' nếu khách hàng yêu cầu tra cứu tình hình cúp nước,
+                    - 'create_ticket' nếu khách hàng yêu cầu tạo ticket,
+                    - 'khác' nếu khách hàng yêu cầu dịch vụ khác.`,
                 },
                 ma_danh_bo: {
                     type: ["string", "null"],

@@ -69,7 +69,7 @@ export async function transfer_to_agent_handler(function_event, asteriskData, se
             response: { instructions: `Nói nguyên văn trường "say_verbatim_for_user" trong kết quả tool vừa nhận được, không cần thêm bớt hoặc diễn giải gì thêm.` }
         });
 
-        referCall(asteriskData.callId, process.env.AGENT_SIP_URI || "sip:200@asterisk");
+        referCall(asteriskData.callId, process.env.AGENT_QUEUE_URI || "sip:200@asterisk");
         if (asteriskData?.sessionLogger) {
             asteriskData.sessionLogger.outcome = "transferred"; // 👉 Đánh dấu chuyển máy
         }

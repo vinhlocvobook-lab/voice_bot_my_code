@@ -36,7 +36,7 @@ export async function get_trang_thai_thanh_toan(function_event, asteriskData, se
         const errorCode = kq?.error_code || "NOT_FOUND";
         if (errorCode === "PRODUCTION_NOT_FOUND") {
             if (ky == curMonth && nam == curYear) {
-                // loithoai1 = `Dạ, hiện tại hệ thống chưa có dữ liệu sản lượng và tiền nước của kỳ ${ky} năm ${nam} cho số danh bộ ${format_danh_bo_voice(asteriskData.ma_danh_bo)} ạ.`;
+
                 if (ky == 1) {
                     ky = 12;
                     nam--;

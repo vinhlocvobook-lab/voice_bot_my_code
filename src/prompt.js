@@ -1,12 +1,20 @@
-export const audio_prompt = "Cuộc gọi tổng đài chăm sóc khách hàng công ty cấp nước tại TP.HCM, "
-    + "toàn bộ bằng tiếng Việt. Có thể chứa mã danh bộ 11 chữ số, số tiền, "
-    + "tên thủ tục: định mức nước, lắp đặt đồng hồ, sang tên, nâng dời đồng hồ."
+// export const audio_prompt = "Cuộc gọi tổng đài chăm sóc khách hàng công ty cấp nước tại TP.HCM, "
+//     + "toàn bộ bằng tiếng Việt. Có thể chứa mã danh bộ 11 chữ số, số tiền, "
+//     + "tên thủ tục: định mức nước, lắp đặt đồng hồ, sang tên, nâng dời đồng hồ."
 // audio_prompt = "";
 // audio_prompt = "Trung An, danh bộ, tiền nước, hóa đơn, thanh toán, đồng hồ nước, cúp nước, định mức, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9.";
 // export const audio_prompt = "Cuộc gọi tổng đài chăm sóc khách hàng công ty cấp nước Trung An tại TP.HCM, "
 //     + "toàn bộ bằng tiếng Việt. Tra cứu kỳ, kỳ 1, kỳ 2, kỳ 3, kỳ 4, kỳ 5, kỳ 6, kỳ 7, kỳ 8, kỳ 9, kỳ 10, kỳ 11, kỳ 12, "
 //     + "mã danh bộ 11 chữ số, tiền nước, sản lượng nước, VCB, MoMo...";
 
+export const audio_prompt =
+    "Đây là cuộc gọi tổng đài chăm sóc khách hàng của công ty cấp nước tại TP.HCM, "
+    + "chủ yếu bằng tiếng Việt. "
+    + "Audio có thể có tiếng ồn, tiếng vọng và nhiễu đường truyền. "
+    + "Ưu tiên lời nói của người đang trực tiếp trao đổi với tổng đài và không suy đoán phần âm thanh không rõ. "
+    + "Có thể xuất hiện mã danh bộ gồm 11 chữ số và số tiền; ưu tiên nhận dạng chính xác từng chữ số. "
+    + "Các thuật ngữ thường gặp: mã danh bộ, tiền nước, định mức nước, "
+    + "lắp đặt đồng hồ, sang tên, nâng dời đồng hồ.";
 export const tool_get_outages = {
     type: "function",
     name: "get_outages",
@@ -25,6 +33,29 @@ export const tool_get_outages = {
             },
         },
         required: [],
+    },
+}
+export const tool_compare_usage_old1 = {
+    type: "function",
+    name: "compare_usage",
+    description: "So sánh tăng/giảm sản lượng nước so với kỳ trước.",
+    parameters: {
+        type: "object",
+        properties: {
+            ma_danh_bo: { type: "string", description: "mã danh bộ" },
+            ky: {
+                type: "integer",
+                description:
+                    "Kỳ (tháng) cần so sánh, tùy chọn. CHỈ điền khi khách nói RÕ tháng/kỳ cụ thể; " +
+                    "không thì bỏ trống để hệ thống tự lấy kỳ gần nhất, đừng tự suy ra từ ngày hiện tại.",
+            },
+            nam: {
+                type: "integer",
+                description:
+                    "Năm cần so sánh, tùy chọn. Cùng quy tắc như ky — chỉ điền khi khách nói rõ, không thì bỏ trống.",
+            },
+        },
+        required: ["ma_danh_bo"],
     },
 }
 export const tool_compare_usage = {
@@ -47,7 +78,7 @@ export const tool_compare_usage = {
                     "Năm cần so sánh, tùy chọn. Cùng quy tắc như ky — chỉ điền khi khách nói rõ, không thì bỏ trống.",
             },
         },
-        required: ["ma_danh_bo"],
+        required: [],
     },
 }
 export const tool_get_bill_old1 = {
@@ -550,7 +581,7 @@ export const tool_hangup_old1 = {
         },
     },
 }
-export const tool_hangup = {
+export const tool_hangup_old2 = {
     type: "function",
     name: "end_call",
     description: `
@@ -565,6 +596,27 @@ export const tool_hangup = {
         },
     },
 }
+export const tool_hangup = {
+    type: "function",
+    name: "end_call",
+    description: `
+    - Mục đích: Kết thúc cuộc gọi và cúp máy.
+    - ĐIỀU KIỆN BẮT BUỘC:
+      1. CHỈ được gọi khi khách hàng NÓI RÕ RÀNG lời chào tạm biệt, cảm ơn hoặc xác nhận hết nhu cầu (ví dụ: "cảm ơn em", "anh không cần gì nữa", "chào em", "cúp máy nhé").
+      2. TUYỆT ĐỐI KHÔNG ĐƯỢC GỌI khi:
+         - Khách đang hỏi, thắc mắc hoặc hối thúc (ví dụ: "sao em?", "sao rồi em?", "được chưa?", "nghe không em?").
+         - Khách vừa im lặng hoặc vừa đọc xong thông tin.
+         - Chưa đọc xong kết quả tra cứu cho khách.
+    `,
+    parameters: {
+        type: "object",
+        properties: {
+            ly_do: { type: "string", description: "Lý do kết thúc (phải dựa trên lời nói thực tế của khách, không được tự suy đoán)" },
+            summary: { type: "string", description: "Tóm tắt nội dung cuộc gọi" },
+        },
+        required: ["ly_do"],
+    },
+};
 export const tool_wait_for_user_old1 = {
     // [migrate 30/07/2026] Tool no-op theo pattern "wait_for_user" chính thức
     // của OpenAI (Realtime models prompting guide, mục "Handling Silence and

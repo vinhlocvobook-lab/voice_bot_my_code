@@ -1,5 +1,5 @@
 import WebSocket from "ws";
-import { log, log_sequenceDiagram } from "./logger.js";
+import { log, log_sequenceDiagram, log_with_file } from "./logger.js";
 import { handle_WebSocket_to_OpenAI } from "./ws.js";
 import { getThongTinKhachHang, getAvailableAgents } from "./integrations/tongdai-api.js";
 import { closeDb, getDanhBoHistory, insertCallStub } from "./integrations/calllog-api.js";
@@ -70,6 +70,7 @@ async function acceptCall(callId, asteriskData) {
     - HÀNH ĐỘNG BẮT BUỘC: PHẢI GỌI TOOL 'get_so_danh_bo' trong 3 trường hợp sau:
       1. Ngay khi khách yêu cầu bất kỳ dịch vụ nào cần mã danh bộ (tiền nước, hóa đơn, cúp nước, so sánh sản lượng...) mà cuộc gọi chưa có mã danh bộ đã xác nhận.
       2. Khi khách hàng đọc mã danh bộ.
+      3. Cần khách hàng đọc mã danh bộ hoặc xác nhận mã danh bộ.
     - Bạn không cần kiểm tra tính hợp lệ của mã danh bộ, phía backend sẽ thực hiện việc này.
     
     ## Quy tắc về thủ tục
@@ -215,7 +216,7 @@ export async function hangupCall(callId) {
 }
 async function get_so_danh_bo(tel, callId = '') {
     let knownDanhBo = [];
-    return knownDanhBo;
+    // return knownDanhBo;
     if (tel && tel !== "Unknown") {
         try {
             const timeoutPromise = new Promise((_, reject) =>
@@ -275,10 +276,14 @@ export async function handleIncomingCall(callId, fromHeader, asteriskData) {
         });
 
         let knowDanhbo = await get_so_danh_bo(asteriskData.phoneNumber, callId);
+        log_with_file(asteriskData.fileName, "[handleIncomingCall]: danh bo list: ", knowDanhbo);
+        log_with_file(asteriskData.fileName, "[handleIncomingCall]: knowDanhbo?.length: ", knowDanhbo?.length);
         if (knowDanhbo?.length > 0) {
+            log_with_file(asteriskData.fileName, "************Có số danh bộ**********");
             asteriskData.ma_danh_bo_list = knowDanhbo;
             asteriskData.hasReadSoDanhBo = true;
         }
+        log_with_file(asteriskData.fileName, "asteriskData.hasReadSoDanhBo=", asteriskData.hasReadSoDanhBo);
         asteriskData.acceptParams = acceptParams;
         await handle_WebSocket_to_OpenAI(callId, asteriskData);
     } catch (err) {
