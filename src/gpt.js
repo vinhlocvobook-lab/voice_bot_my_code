@@ -266,3 +266,87 @@ Chỉ dùng thông tin khách hàng thực sự đã nói trong hội thoại v�
         clearTimeout(timer);
     }
 }
+
+const CONVERSATION_HISTORY_SCHEMA = {
+    type: "json_schema",
+    json_schema: {
+        name: "conversation_history_verdict",
+        strict: true,
+        schema: {
+            type: "object",
+            properties: {
+                cau_tra_loi: {
+                    type: "string",
+                    description: "Câu trả lời ngắn gọn (1-2 câu) bằng tiếng Việt tự nhiên, lịch sự, xưng Em gọi Quý khách, trả lời đúng trọng tâm để đọc trực tiếp cho khách hàng.",
+                },
+                co_thong_tin: {
+                    type: "boolean",
+                    description: "true nếu đoạn hội thoại trước đó có chứa thông tin khách hỏi, false nếu chưa từng được trao đổi.",
+                },
+            },
+            required: ["cau_tra_loi", "co_thong_tin"],
+            additionalProperties: false,
+        },
+    },
+};
+
+export async function answer_conversation_history(asteriskData, noidung = "") {
+    const conversation = asteriskData.conversation || "";
+    const prompt = `Bạn là trợ lý ảo tổng đài Công ty Cổ phần Cấp nước Trung An.
+Dưới đây là toàn bộ đoạn hội thoại đã diễn ra giữa Khách hàng và Trợ lý AI trong cuộc gọi này:
+
+--- HỘI THOẠI ---
+${conversation || "(Chưa có nội dung hội thoại)"}
+-----------------
+
+Thông tin bổ sung đã ghi nhận (nếu có):
+- Mã danh bộ: ${asteriskData.ma_danh_bo || "Chưa xác nhận"}
+- SĐT khách: ${asteriskData.phoneNumber || "Không rõ"}
+
+Khách hàng đang hỏi lại/nhắc lại thông tin sau:
+"${noidung || "Khách hàng muốn hỏi lại thông tin vừa trao đổi"}"
+
+YÊU CẦU:
+1. Dựa CHÍNH XÁC vào những gì AI và Khách hàng đã trao đổi trong đoạn hội thoại trên để trả lời.
+2. Trả lời ngắn gọn, trực tiếp vào trọng tâm câu hỏi trong 1-2 câu, bằng tiếng Việt lịch sự, xưng "Em" và gọi "Quý khách", phù hợp để đọc trực tiếp cho khách nghe qua điện thoại.
+3. Tuyệt đối không bịa đặt thông tin chưa từng được trao đổi trong cuộc gọi. Nếu thông tin này chưa từng được nhắc đến trước đó, hãy trả lời lịch sự là trước đó chưa trao đổi về nội dung này và hỏi Quý khách có cần em hỗ trợ tra cứu không.`;
+
+    console.log("=================AnswerConversationHistory=================");
+    console.log("[answer_conversation_history]: noidung = ", noidung);
+    console.log("===========================================================");
+
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort("timeout"), 10000);
+    try {
+        const res = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            signal: ctrl.signal,
+            headers: {
+                Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                model: ARBITER_MODEL,
+                messages: [{ role: "user", content: prompt }],
+                response_format: CONVERSATION_HISTORY_SCHEMA,
+                reasoning_effort: ARBITER_REASONING_EFFORT,
+            }),
+        });
+
+        if (!res.ok) {
+            const err = await res.text();
+            log.warn(`[ConversationHistory] API lỗi ${res.status}: ${err.slice(0, 300)}`);
+            return null;
+        }
+
+        const data = await res.json();
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) return null;
+        return JSON.parse(content);
+    } catch (err) {
+        log.warn(`[ConversationHistory] Lỗi: ${err.name === "AbortError" ? "timeout 10000ms" : err.message}`);
+        return null;
+    } finally {
+        clearTimeout(timer);
+    }
+}

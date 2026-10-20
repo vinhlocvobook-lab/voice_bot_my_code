@@ -288,6 +288,23 @@ export const tool_create_ticket_old1 = {
         required: ["loai", "mo_ta"],
     },
 }
+export const tool_get_conversation_history = {
+    type: "function",
+    name: "get_conversation_history",
+    description: `
+    Mục đích:
+      - Sử dụng tool này khi khách hàng hỏi lại, nhắc lại hoặc xác nhận lại bất kỳ thông tin nào đã được trao đổi/tra cứu trước đó trong cuộc gọi (ví dụ: tiền nước bao nhiêu, kỳ/tháng mấy, sản lượng bao nhiêu, mã danh bộ đã đọc là gì, thông tin cúp nước, thủ tục vừa hướng dẫn).`,
+    parameters: {
+        type: "object",
+        properties: {
+            noidung: {
+                type: "string",
+                description: "nội dung khách muốn hỏi lại, nhắc lại hoặc xác nhận lại bất kỳ thông tin nào đã được trao đổi/tra cứu trước đó",
+            }
+        },
+        required: [],
+    },
+}
 // 1. Cuộc gọi ĐÃ CÓ mã danh bộ được xác nhận.
 export const tool_create_ticket_old2 = {
     type: "function",
@@ -773,18 +790,40 @@ export const session_update_waitfordigits = {
     }
 }
 
-export function set_wait_for_digits(vad_type = "", send_message) {
-    if (vad_type != "server_vad") {
-        send_message(session_update_waitfordigits);
+export const session_update_noise = {
+    type: "session.update",
+    session: {
+        type: "realtime",
+        audio: {
+            input: {
+                "turn_detection": {
+                    "type": "server_vad",
+                    "threshold": 0.7,
+                    "prefix_padding_ms": 300,
+                    "silence_duration_ms": 3000,
+                    "create_response": true,
+                    "interrupt_response": true
+                }
+            }
+        }
     }
+}
+
+export function set_wait_for_digits(vad_type = "", send_message) {
+    // if (vad_type != "server_vad") {
+    //     send_message(session_update_waitfordigits);
+    // }
+    send_message(session_update_noise);
 }
 export function set_semantic_vad(vad_type = "", send_message) {
-    if (vad_type != "semantic_vad") {
-        send_message(session_update_semantic_vad);
-    }
+    // if (vad_type != "semantic_vad") {
+    //     send_message(session_update_semantic_vad);
+    // }
+    send_message(session_update_noise);
 }
 export function set_semantic_vad_no_interrupt(vad_type = "", send_message) {
-    if (vad_type != "semantic_vad_no_interrupt") {
-        send_message(session_update_semantic_vad_no_interrupt);
-    }
+    // if (vad_type != "semantic_vad_no_interrupt") {
+    //     send_message(session_update_semantic_vad_no_interrupt);
+    // }
+    send_message(session_update_noise);
 }

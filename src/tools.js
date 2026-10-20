@@ -11,6 +11,8 @@ import { compare_usage_handler } from "./tool_handler/compare_usage.js"
 import { get_procedure_info_for_family_handler, check_missing_docs_handler } from "./tool_handler/procedure_info_for_family.js"
 import { get_procedure_info_for_organization_handler } from "./tool_handler/procedure_info_for_organization.js"
 
+
+import { get_conversation_history_handler } from "./tool_handler/conversation_context.js"
 const TOOL_HANDLERS = {
     get_so_danh_bo: get_so_danh_bo_handler,
     get_bill: get_bill_handler,
@@ -23,6 +25,7 @@ const TOOL_HANDLERS = {
     procedure_info_for_family: get_procedure_info_for_family_handler,
     get_procedure_info_for_organization: get_procedure_info_for_organization_handler,
     check_missing_docs: check_missing_docs_handler,
+    get_conversation_history: get_conversation_history_handler,
 };
 export async function tool_function_handler(function_event, asteriskData, send_message) {
     const handler = TOOL_HANDLERS[function_event.name];

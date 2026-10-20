@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import WebSocket from "ws";
-import { audio_prompt } from "./prompt.js";
+import { audio_prompt, session_update_noise } from "./prompt.js";
 import { tool_function_handler } from "./tools.js";
 import { log_with_file, log_sequenceDiagram, log_conversation } from "./logger.js";
 import { finalizeCallLog } from "./integrations/calllog-api.js";
@@ -380,7 +380,8 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
         }
         log_sequenceDiagram(`Code-->>OpenAI: session.update`, asteriskData.fileName);
         log_sequenceDiagram(`Note over Code,OpenAI: ${JSON.stringify(session_update_message)}`, asteriskData.fileName);
-        send_message(ws, session_update_message, callId, asteriskData.fileName);
+        // send_message(ws, session_update_message, callId, asteriskData.fileName);
+        send_message(ws, session_update_noise, callId, asteriskData.fileName);
         // 2. Bắn câu chào NGAY LẬP TỨC (không chờ sleep 1s)
         triggerGreeting();
         greetingTimeout = setTimeout(() => {
@@ -401,6 +402,11 @@ export function handle_WebSocket_to_OpenAI(callId, asteriskData) {
         }
 
         switch (event.type) {
+            case "conversation.item.input_audio_transcription.delta":
+                // log_with_file(asteriskData.fileName, "\n\r");
+                // log_with_file(asteriskData.fileName, "[conversation.item.input_audio_transcription.delta]: ");
+                log_with_file(asteriskData.fileName, JSON.stringify({ type: event.type, delta: event.delta }));
+                break;
             case 'conversation.item.created':
                 log_with_file(asteriskData.fileName, "\n\r");
                 log_with_file(asteriskData.fileName, "[conversation.item.created]: ");

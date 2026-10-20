@@ -7,7 +7,7 @@ import {
     audio_prompt, tool_get_outages, tool_compare_usage, tool_get_bill,
     tool_create_ticket, tool_procedure_info_for_family, tool_check_missing_docs,
     tool_chuyenmay, tool_hangup, tool_wait_for_user,
-    tool_get_so_danh_bo
+    tool_get_so_danh_bo, tool_get_conversation_history
 } from './prompt.js'
 const BASE = "https://api.openai.com/v1/realtime/calls";
 function authHeaders() {
@@ -75,6 +75,9 @@ async function acceptCall(callId, asteriskData) {
     
     ## Quy tắc về thủ tục
     - xác định thủ tục dành cho gia đình hoặc doanh nghiệp trước khi gọi tool về thủ tục
+    
+    ## Hỏi lại thông tin đã trao đổi trong cuộc gọi
+    - Khi khách hỏi lại, nhắc lại hoặc xác nhận lại bất kỳ thông tin nào đã trao đổi trước đó (tiền nước bao nhiêu, kỳ mấy, mã danh bộ là gì, cúp nước mấy giờ, hồ sơ dặn dò...): BẮT BUỘC gọi tool 'get_conversation_history'. TUYỆT ĐỐI KHÔNG gọi lại 'get_so_danh_bo' hay 'get_bill' khi khách chỉ đang hỏi lại thông tin cũ.
     `
     // # QUY TẮC CỐT LÕI: QUẢN LÝ MÃ DANH BỘ BẰNG TOOL 'get_so_danh_bo'
     // - BẠN TUYỆT ĐỐI KHÔNG ĐƯỢC TỰ HỎI SỐ DANH BỘ BẰNG GIỌNG NÓI (CẤM nói các câu như: "Dạ Quý khách cho em xin mã danh bộ", "Quý khách đọc số danh bộ giúp em"...).
@@ -109,6 +112,7 @@ async function acceptCall(callId, asteriskData) {
     let tools = [
         tool_get_so_danh_bo,
         tool_get_bill,
+        tool_get_conversation_history,
         tool_get_outages,
         tool_compare_usage,
         tool_procedure_info_for_family,
